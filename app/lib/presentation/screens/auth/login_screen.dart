@@ -86,13 +86,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: Column(
                     children: [
                       const Spacer(),
-                      const NeoAvatar(
-                        size: 88,
-                        color: Neo.pink,
-                        shadowOffset: Neo.shadowCard,
-                        child: Icon(Icons.favorite, color: Neo.ink, size: 40),
+                      Image.asset(
+                        'assets/images/logotype/alma.png',
+                        height: 132,
+                        fit: BoxFit.contain,
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 12),
                       Text(
                         'ALMA',
                         style: txt.displaySmall?.copyWith(letterSpacing: 8),

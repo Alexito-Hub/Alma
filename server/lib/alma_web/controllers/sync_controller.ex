@@ -14,7 +14,7 @@ defmodule AlmaWeb.SyncController do
     notes_ack =
       (params["notes"] || [])
       |> Enum.map(fn note ->
-        case Notes.create(user, note["body"], note["created_at"]) do
+        case Notes.create(user, note) do
           {:ok, doc} -> %{"client_id" => note["client_id"], "id" => doc["_id"]}
           _ -> %{"client_id" => note["client_id"], "error" => "failed"}
         end

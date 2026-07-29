@@ -5,6 +5,7 @@ import 'package:isar_community/isar.dart';
 
 import '../local/isar/note_local.dart';
 import '../local/isar/post_local.dart';
+import '../local/isar/special_date_local.dart';
 import '../local/isar/status_local.dart';
 import '../local/isar_service.dart';
 import '../remote/api_client.dart';
@@ -24,7 +25,12 @@ class Hydrator {
   /// Full initial sync. Safe to call repeatedly.
   Future<void> hydrateAll({required String? coupleId}) async {
     if (coupleId == null) return;
-    await Future.wait([_pullNotes(), _pullPosts(), _pullStatus()]);
+    await Future.wait([
+      _pullNotes(),
+      _pullPosts(),
+      _pullStatus(),
+      _pullSpecialDates(),
+    ]);
   }
 
   String? _subscribedCoupleId;
@@ -58,6 +64,9 @@ class Hydrator {
           case 'new_note':
             await _upsertNote(p);
             break;
+          case 'new_special_date':
+            await _upsertSpecialDate(p);
+            break;
           case 'partner_updated':
             onPartnerUpdated?.call(p);
             break;
@@ -76,12 +85,21 @@ class Hydrator {
     try {
       final res = await _dio.get(Endpoints.notes);
       final list = (res.data['notes'] as List? ?? const []);
-      if (list.isEmpty) return;
+      final serverIds = _idsOf(list);
       // One transaction for the whole page instead of one per row.
       await _isar.writeTxn(() async {
         for (final raw in list) {
           await _upsertNoteInTxn(Map<String, dynamic>.from(raw as Map));
         }
+        // Drop already-synced rows the server no longer has (deleted remotely)
+        // so a deletion propagates instead of leaving a phantom entry. Rows
+        // still pending upload (no remoteId) are kept.
+        final all = await _isar.noteLocals.where().findAll();
+        final stale = all
+            .where((n) => n.remoteId != null && !serverIds.contains(n.remoteId))
+            .map((n) => n.isarId)
+            .toList();
+        if (stale.isNotEmpty) await _isar.noteLocals.deleteAll(stale);
       });
     } on DioException {
       // offline / no couple yet — ignore
@@ -92,15 +110,33 @@ class Hydrator {
     try {
       final res = await _dio.get(Endpoints.posts);
       final list = (res.data['posts'] as List? ?? const []);
-      if (list.isEmpty) return;
+      final serverIds = _idsOf(list);
       await _isar.writeTxn(() async {
         for (final raw in list) {
           await _upsertPostInTxn(Map<String, dynamic>.from(raw as Map));
         }
+        // Drop already-synced rows the server no longer has (deleted remotely)
+        // so a deletion propagates instead of leaving a broken/phantom post.
+        final all = await _isar.postLocals.where().findAll();
+        final stale = all
+            .where((p) => p.remoteId != null && !serverIds.contains(p.remoteId))
+            .map((p) => p.isarId)
+            .toList();
+        if (stale.isNotEmpty) await _isar.postLocals.deleteAll(stale);
       });
     } on DioException {
       /* ignore */
     }
+  }
+
+  /// Collects the server-side ids (`_id`/`id`) from a raw JSON list.
+  Set<String> _idsOf(List<dynamic> list) {
+    final ids = <String>{};
+    for (final raw in list) {
+      final id = ((raw as Map)['_id'] ?? raw['id'])?.toString();
+      if (id != null) ids.add(id);
+    }
+    return ids;
   }
 
   Future<void> _pullStatus() async {
@@ -141,6 +177,17 @@ class Hydrator {
       ..body = j['body']?.toString() ?? ''
       ..authorId = j['author_id']?.toString() ?? ''
       ..createdAt = _date(j['created_at']) ?? DateTime.now()
+      ..mood = j['mood']?.toString()
+      ..link = j['link']?.toString()
+      ..remoteImageUrls = (j['image_urls'] as List? ?? const [])
+          .map((u) => u.toString())
+          .toList()
+      ..remoteVideoUrl = j['video_url']?.toString()
+      ..latitude = _toDouble(j['latitude'])
+      ..longitude = _toDouble(j['longitude'])
+      ..placeLabel = j['place_label']?.toString()
+      ..reactionEmoji = j['reaction_emoji']?.toString()
+      ..reactionAuthorId = j['reaction_author_id']?.toString()
       ..syncStatus = 'synced';
     await _isar.noteLocals.put(row);
   }
@@ -187,6 +234,55 @@ class Hydrator {
       ..updatedAt = _date(j['updated_at']) ?? DateTime.now()
       ..syncStatus = 'synced';
     await _isar.statusLocals.put(row);
+  }
+
+  Future<void> _pullSpecialDates() async {
+    try {
+      final res = await _dio.get(Endpoints.specialDates);
+      final list = (res.data['special_dates'] as List? ?? const []);
+      final serverIds = _idsOf(list);
+      await _isar.writeTxn(() async {
+        for (final raw in list) {
+          await _upsertSpecialDateInTxn(Map<String, dynamic>.from(raw as Map));
+        }
+        final all = await _isar.specialDateLocals.where().findAll();
+        final stale = all
+            .where((s) => s.remoteId != null && !serverIds.contains(s.remoteId))
+            .map((s) => s.isarId)
+            .toList();
+        if (stale.isNotEmpty) await _isar.specialDateLocals.deleteAll(stale);
+      });
+    } on DioException {
+      /* ignore */
+    }
+  }
+
+  Future<void> _upsertSpecialDate(Map<String, dynamic> j) =>
+      _isar.writeTxn(() => _upsertSpecialDateInTxn(j));
+
+  Future<void> _upsertSpecialDateInTxn(Map<String, dynamic> j) async {
+    final remoteId = (j['_id'] ?? j['id'])?.toString();
+    if (remoteId == null) return;
+    final existing = await _isar.specialDateLocals
+        .filter()
+        .remoteIdEqualTo(remoteId)
+        .findFirst();
+    final row = existing ?? SpecialDateLocal();
+    row
+      ..remoteId = remoteId
+      ..title = j['title']?.toString() ?? ''
+      ..emoji = j['emoji']?.toString()
+      ..recurring = j['recurring'] != false
+      ..date = _date(j['date']) ?? DateTime.now()
+      ..createdBy = j['author_id']?.toString() ?? ''
+      ..syncStatus = 'synced';
+    await _isar.specialDateLocals.put(row);
+  }
+
+  double? _toDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
   }
 
   DateTime? _date(dynamic v) {

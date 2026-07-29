@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/neo.dart';
+import '../../../data/local/welcome_storage.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/sync/hydrator.dart';
+import '../onboarding/welcome_screen.dart';
 import 'couple_link_screen.dart';
 import 'login_screen.dart';
 import 'onboarding_screen.dart';
@@ -21,11 +23,17 @@ class AuthGate extends ConsumerStatefulWidget {
 
 class _AuthGateState extends ConsumerState<AuthGate> {
   Future<void>? _bootstrap;
+  bool _welcomeSeen = true;
 
   @override
   void initState() {
     super.initState();
-    _bootstrap = _restoreSession();
+    _bootstrap = _boot();
+  }
+
+  Future<void> _boot() async {
+    _welcomeSeen = await WelcomeStorage.hasSeen();
+    await _restoreSession();
   }
 
   Future<void> _restoreSession() async {
@@ -67,7 +75,18 @@ class _AuthGateState extends ConsumerState<AuthGate> {
           return const _NeoSplash();
         }
         final user = ref.watch(currentUserProvider);
-        if (user == null) return const LoginScreen();
+        if (user == null) {
+          // First launch only: a one-time heartfelt welcome before login.
+          if (!_welcomeSeen) {
+            return WelcomeScreen(
+              onDone: () async {
+                await WelcomeStorage.markSeen();
+                if (mounted) setState(() => _welcomeSeen = true);
+              },
+            );
+          }
+          return const LoginScreen();
+        }
 
         // Onboarding step: no display_name → ask for identity first.
         final needsIdentity = (user.displayName ?? '').trim().isEmpty;

@@ -9,6 +9,7 @@ import '../../core/config/env.dart';
 import '../local/isar/comment_local.dart';
 import '../local/isar/note_local.dart';
 import '../local/isar/post_local.dart';
+import '../local/isar/special_date_local.dart';
 import '../local/isar/status_local.dart';
 import '../local/isar_service.dart';
 import '../remote/api_client.dart';
@@ -67,6 +68,7 @@ Future<void> _runSync() async {
   await _syncStatus(isar, dio);
   await _syncPosts(isar, dio);
   await _syncComments(isar, dio);
+  await _syncSpecialDates(isar, dio);
 }
 
 /// Foreground push of everything pending. Called from the UI right after the
@@ -90,6 +92,7 @@ Future<void> runForegroundSync() async {
     await _syncStatus(isar, dio);
     await _syncPosts(isar, dio);
     await _syncComments(isar, dio);
+    await _syncSpecialDates(isar, dio);
   } catch (_) {
     // Best-effort; the periodic worker retries later.
   }
@@ -149,29 +152,112 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
       .findAll();
   if (pending.isEmpty) return;
 
-  final payload = pending
-      .map(
-        (n) => {
-          'client_id': n.isarId.toString(),
-          'body': n.body,
-          'author_id': n.authorId,
-          'created_at': n.createdAt.toIso8601String(),
-        },
-      )
-      .toList();
+  // Upload each note's photos/video first (once — the remote URLs are saved on
+  // the row so a retry never re-uploads), then send the note with all its rich
+  // fields. Previously only the text body was synced, so photos/video/location/
+  // mood were silently dropped.
+  final payload = <Map<String, dynamic>>[];
+  for (final n in pending) {
+    if (n.remoteImageUrls.isEmpty && n.imagePaths.isNotEmpty) {
+      final urls = <String>[];
+      for (final path in n.imagePaths) {
+        final url = await _uploadFile(dio, path);
+        if (url != null) urls.add(url);
+      }
+      if (urls.isNotEmpty) {
+        await isar.writeTxn(() async {
+          n.remoteImageUrls = urls;
+          await isar.noteLocals.put(n);
+        });
+      }
+    }
+    if (n.remoteVideoUrl == null && n.videoPath != null) {
+      final url = await _uploadFile(dio, n.videoPath!);
+      if (url != null) {
+        await isar.writeTxn(() async {
+          n.remoteVideoUrl = url;
+          await isar.noteLocals.put(n);
+        });
+      }
+    }
+
+    payload.add({
+      'client_id': n.isarId.toString(),
+      'body': n.body,
+      'author_id': n.authorId,
+      'created_at': n.createdAt.toIso8601String(),
+      'mood': n.mood,
+      'link': n.link,
+      'image_urls': n.remoteImageUrls,
+      'video_url': n.remoteVideoUrl,
+      'latitude': n.latitude,
+      'longitude': n.longitude,
+      'place_label': n.placeLabel,
+      'reaction_emoji': n.reactionEmoji,
+      'reaction_author_id': n.reactionAuthorId,
+    });
+  }
 
   final res = await dio.post(Endpoints.syncBatch, data: {'notes': payload});
   if (res.statusCode == 200) {
     final acks = (res.data['notes'] as List).cast<Map<String, dynamic>>();
     await isar.writeTxn(() async {
       for (final ack in acks) {
+        if (ack['error'] != null) continue;
         final n = await isar.noteLocals.get(int.parse(ack['client_id']));
         if (n == null) continue;
-        n.remoteId = ack['id'];
+        n.remoteId = ack['id']?.toString();
         n.syncStatus = 'synced';
         await isar.noteLocals.put(n);
       }
     });
+  }
+}
+
+/// Upload one local file (photo/video) as multipart; returns its remote URL,
+/// or null on failure (the caller keeps the row pending for the next tick).
+Future<String?> _uploadFile(Dio dio, String path) async {
+  final file = File(path);
+  if (!await file.exists()) return null;
+  try {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(file.path),
+    });
+    final res = await dio.post(Endpoints.mediaUpload, data: form);
+    if (res.statusCode == 200) return res.data['url'] as String?;
+  } catch (_) {
+    /* leave pending */
+  }
+  return null;
+}
+
+Future<void> _syncSpecialDates(Isar isar, Dio dio) async {
+  final pending = await isar.specialDateLocals
+      .filter()
+      .syncStatusEqualTo('pending')
+      .findAll();
+  for (final s in pending) {
+    try {
+      final res = await dio.post(
+        Endpoints.specialDates,
+        data: {
+          'title': s.title,
+          'emoji': s.emoji,
+          'recurring': s.recurring,
+          'date': s.date.toIso8601String(),
+        },
+      );
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final doc = res.data['special_date'] as Map?;
+        await isar.writeTxn(() async {
+          s.remoteId = (doc?['_id'] ?? doc?['id'])?.toString();
+          s.syncStatus = 'synced';
+          await isar.specialDateLocals.put(s);
+        });
+      }
+    } catch (_) {
+      // Stays pending for the next tick.
+    }
   }
 }
 

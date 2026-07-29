@@ -144,11 +144,6 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet>
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Row(
                 children: [
-                  NeoIconButton(
-                    icon: Icons.close_rounded,
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
-                  const SizedBox(width: 14),
                   const NeoIconBadge(
                     icon: Icons.add_rounded,
                     color: Neo.pink,
@@ -157,6 +152,11 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet>
                   ),
                   const SizedBox(width: 10),
                   Text('Crear', style: txt.titleLarge),
+                  const Spacer(),
+                  NeoIconButton(
+                    icon: Icons.close_rounded,
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  ),
                 ],
               ),
             ),

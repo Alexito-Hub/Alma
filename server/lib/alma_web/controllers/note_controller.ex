@@ -2,8 +2,8 @@ defmodule AlmaWeb.NoteController do
   use Phoenix.Controller, formats: [:json]
   alias Alma.Notes
 
-  def create(conn, %{"body" => body} = params) do
-    case Notes.create(conn.assigns.current_user, body, params["created_at"]) do
+  def create(conn, %{"body" => _body} = params) do
+    case Notes.create(conn.assigns.current_user, params) do
       {:ok, note} -> json(conn, %{note: note})
       err -> conn |> put_status(:bad_request) |> json(%{error: inspect(err)})
     end

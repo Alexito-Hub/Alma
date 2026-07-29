@@ -18,6 +18,8 @@ class Endpoints {
   static String postComments(String postId) => '/api/posts/$postId/comments';
 
   static const notes = '/api/notes';
+  static const specialDates = '/api/special_dates';
+  static String specialDate(String id) => '/api/special_dates/$id';
   static const status = '/api/status';
 
   static const mediaUpload = '/api/media';

@@ -30,7 +30,10 @@ final partnerStatusProvider = StreamProvider.autoDispose<StatusMessage>((ref) {
   if (coupleId != null && coupleId.isNotEmpty) {
     repo.subscribeToCouple(coupleId);
   }
-  return repo.partnerStream();
+  // The couple channel echoes our own broadcast back to us, so only surface
+  // the *partner's* status — drop anything we authored ourselves.
+  final myId = me?.id;
+  return repo.partnerStream().where((msg) => msg.authorId != myId);
 });
 
 class StatusRepository {

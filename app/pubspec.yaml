@@ -48,7 +48,7 @@ dependencies:
   table_calendar: ^3.1.2
 
   # Native media / device (Diary 2.0)
-  image_cropper: ^8.1.0        # crop on upload; square for avatars
+  image_cropper: 12.2.1        # crop on upload; square for avatars
   video_player: ^2.9.2         # short-video playback
   geolocator: ^13.0.2          # entry geotag
   geocoding: ^3.0.0            # reverse-geocode to a place label
@@ -61,8 +61,31 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   isar_community_generator: ^3.3.2
   build_runner: ^2.4.13
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/images/logotype/
+
+# App icon for all launchers — regenerate with `dart run flutter_launcher_icons`.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/images/logotype/alma.png"
+  adaptive_icon_background: "#FCEFDA"
+  adaptive_icon_foreground: "assets/images/logotype/alma.png"
+  min_sdk_android: 23
+
+# Launch/splash screen — regenerate with `dart run flutter_native_splash:create`.
+flutter_native_splash:
+  color: "#FCEFDA"
+  image: "assets/images/logotype/alma.png"
+  android: true
+  ios: false
+  web: false
+  android_12:
+    color: "#FCEFDA"
+    image: "assets/images/logotype/alma.png"

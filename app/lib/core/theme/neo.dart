@@ -121,7 +121,9 @@ class _NeoBoxState extends State<NeoBox> {
         borderRadius: BorderRadius.circular(widget.radius),
         boxShadow: pressed ? const [] : Neo.shadow(off),
       ),
-      clipBehavior: widget.clip ? Clip.antiAlias : Clip.none,
+      // antiAliasWithSaveLayer avoids the child colour bleeding ~1px past the
+      // rounded corners (the little "punta" over the black border).
+      clipBehavior: widget.clip ? Clip.antiAliasWithSaveLayer : Clip.none,
       child: widget.child,
     );
 

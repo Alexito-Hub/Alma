@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -23,6 +24,10 @@ class MediaTools {
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: 'Recortar',
+          // Brand the native uCrop chrome (values mirror Neo.pink / white).
+          toolbarColor: const Color(0xFFFF90A8),
+          toolbarWidgetColor: const Color(0xFFFFFFFF),
+          activeControlsWidgetColor: const Color(0xFFFF90A8),
           lockAspectRatio: square,
           hideBottomControls: square,
         ),
@@ -46,7 +51,7 @@ class MediaTools {
       }
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
+          accuracy: LocationAccuracy.high,
         ),
       );
       String? label;
@@ -57,11 +62,13 @@ class MediaTools {
         );
         if (places.isNotEmpty) {
           final p = places.first;
-          final parts = [
-            p.locality,
-            p.administrativeArea,
-          ].where((s) => s != null && s.isNotEmpty).toList();
-          label = parts.isNotEmpty ? parts.join(', ') : p.name;
+          // Prefer the most specific parts (street/neighbourhood) so the label
+          // is an actual place, not just the region.
+          final parts =
+              [p.street, p.subLocality, p.locality, p.administrativeArea]
+                  .where((s) => s != null && s.trim().isNotEmpty)
+                  .toList();
+          label = parts.isEmpty ? p.name : parts.take(3).join(', ');
         }
       } catch (_) {
         // Reverse-geocoding is optional; coordinates are enough.
