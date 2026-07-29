@@ -1,0 +1,7 @@
+_build
+deps
+.env
+.git
+.gitignore
+*.log
+priv/static/media

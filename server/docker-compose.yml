@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    container_name: alma_server
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/app
+      - /app/_build
+      - /app/deps
+    env_file: .env
+    environment:
+      PHX_SERVER: "true"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    command: mix phx.server

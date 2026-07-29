@@ -1,0 +1,67 @@
+name: alma
+description: "Alma — a private, immersive space for two."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Local DB (offline-first cache)
+  isar: ^3.1.0+1
+  isar_flutter_libs: ^3.1.0+1
+  path_provider: ^2.1.5
+
+  # Networking
+  dio: ^5.7.0
+  phoenix_socket: ^0.7.6
+
+  # Auth
+  jwt_decoder: ^2.0.1
+  flutter_secure_storage: ^9.2.2
+
+  # Background sync
+  workmanager: ^0.9.0
+  connectivity_plus: ^6.1.0
+
+  # Media handling (visually-lossless compression policy)
+  image_picker: ^1.1.2
+  image: ^4.3.0           # JPEG re-encoding, EXIF strip
+  video_compress: ^3.1.3  # H.264 high-quality presets
+  flutter_image_compress: ^2.3.0
+
+  # UI helpers
+  cached_network_image: ^3.4.1
+  intl: ^0.20.0
+  uuid: ^4.5.1
+  table_calendar: ^3.1.2
+
+  # Native media / device (Diary 2.0)
+  image_cropper: ^8.1.0        # crop on upload; square for avatars
+  video_player: ^2.9.2         # short-video playback
+  geolocator: ^13.0.2          # entry geotag
+  geocoding: ^3.0.0            # reverse-geocode to a place label
+  # NOTE: voice notes (record/audioplayers) are deferred — `record` has no
+  # release compatible with the current Flutter/Dart SDK (needs Dart >=3.12).
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  isar_generator: ^3.1.0+1
+  build_runner: ^2.4.13
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

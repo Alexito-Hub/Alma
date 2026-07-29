@@ -1,0 +1,13 @@
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+alma-*.tar
+/tmp/
+.env
+.elixir_ls/
+.iex.exs
+priv/static/media/

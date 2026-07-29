@@ -1,0 +1,6 @@
+# Top-level — per-subproject .gitignores live inside app/ and server/
+.DS_Store
+.env
+.env.local
+.vscode/
+.idea/

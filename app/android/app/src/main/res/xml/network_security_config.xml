@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEV ONLY. Android blocks cleartext (http://) traffic by default on
+  targetSdk >= 28. The Alma backend runs over plain http on the LAN during
+  development, so we allow cleartext here.
+
+  Before shipping to production: serve the API over https:// and delete this
+  file + the android:networkSecurityConfig reference in AndroidManifest.xml.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
