@@ -65,6 +65,7 @@ const PostLocalSchema = CollectionSchema(
     r'tags': PropertySchema(id: 9, name: r'tags', type: IsarType.stringList),
     r'title': PropertySchema(id: 10, name: r'title', type: IsarType.string),
   },
+
   estimateSize: _postLocalEstimateSize,
   serialize: _postLocalSerialize,
   deserialize: _postLocalDeserialize,
@@ -113,10 +114,11 @@ const PostLocalSchema = CollectionSchema(
   },
   links: {},
   embeddedSchemas: {},
+
   getId: _postLocalGetId,
   getLinks: _postLocalGetLinks,
   attach: _postLocalAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _postLocalEstimateSize(

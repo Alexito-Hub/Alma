@@ -34,6 +34,7 @@ const StatusLocalSchema = CollectionSchema(
       type: IsarType.dateTime,
     ),
   },
+
   estimateSize: _statusLocalEstimateSize,
   serialize: _statusLocalSerialize,
   deserialize: _statusLocalDeserialize,
@@ -82,10 +83,11 @@ const StatusLocalSchema = CollectionSchema(
   },
   links: {},
   embeddedSchemas: {},
+
   getId: _statusLocalGetId,
   getLinks: _statusLocalGetLinks,
   attach: _statusLocalAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _statusLocalEstimateSize(

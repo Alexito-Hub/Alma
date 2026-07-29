@@ -40,6 +40,7 @@ const CommentLocalSchema = CollectionSchema(
     ),
     r'text': PropertySchema(id: 5, name: r'text', type: IsarType.string),
   },
+
   estimateSize: _commentLocalEstimateSize,
   serialize: _commentLocalSerialize,
   deserialize: _commentLocalDeserialize,
@@ -101,10 +102,11 @@ const CommentLocalSchema = CollectionSchema(
   },
   links: {},
   embeddedSchemas: {},
+
   getId: _commentLocalGetId,
   getLinks: _commentLocalGetLinks,
   attach: _commentLocalAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _commentLocalEstimateSize(

@@ -106,6 +106,7 @@ const NoteLocalSchema = CollectionSchema(
       type: IsarType.string,
     ),
   },
+
   estimateSize: _noteLocalEstimateSize,
   serialize: _noteLocalSerialize,
   deserialize: _noteLocalDeserialize,
@@ -154,10 +155,11 @@ const NoteLocalSchema = CollectionSchema(
   },
   links: {},
   embeddedSchemas: {},
+
   getId: _noteLocalGetId,
   getLinks: _noteLocalGetLinks,
   attach: _noteLocalAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _noteLocalEstimateSize(
@@ -1664,6 +1666,7 @@ extension NoteLocalQueryFilter
         FilterCondition.equalTo(
           property: r'latitude',
           value: value,
+
           epsilon: epsilon,
         ),
       );
@@ -1681,6 +1684,7 @@ extension NoteLocalQueryFilter
           include: include,
           property: r'latitude',
           value: value,
+
           epsilon: epsilon,
         ),
       );
@@ -1698,6 +1702,7 @@ extension NoteLocalQueryFilter
           include: include,
           property: r'latitude',
           value: value,
+
           epsilon: epsilon,
         ),
       );
@@ -1719,6 +1724,7 @@ extension NoteLocalQueryFilter
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
+
           epsilon: epsilon,
         ),
       );
@@ -1913,6 +1919,7 @@ extension NoteLocalQueryFilter
         FilterCondition.equalTo(
           property: r'longitude',
           value: value,
+
           epsilon: epsilon,
         ),
       );
@@ -1931,6 +1938,7 @@ extension NoteLocalQueryFilter
           include: include,
           property: r'longitude',
           value: value,
+
           epsilon: epsilon,
         ),
       );
@@ -1948,6 +1956,7 @@ extension NoteLocalQueryFilter
           include: include,
           property: r'longitude',
           value: value,
+
           epsilon: epsilon,
         ),
       );
@@ -1969,6 +1978,7 @@ extension NoteLocalQueryFilter
           includeLower: includeLower,
           upper: upper,
           includeUpper: includeUpper,
+
           epsilon: epsilon,
         ),
       );

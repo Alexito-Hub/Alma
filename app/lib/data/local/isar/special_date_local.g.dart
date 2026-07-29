@@ -41,6 +41,7 @@ const SpecialDateLocalSchema = CollectionSchema(
     ),
     r'title': PropertySchema(id: 6, name: r'title', type: IsarType.string),
   },
+
   estimateSize: _specialDateLocalEstimateSize,
   serialize: _specialDateLocalSerialize,
   deserialize: _specialDateLocalDeserialize,
@@ -89,10 +90,11 @@ const SpecialDateLocalSchema = CollectionSchema(
   },
   links: {},
   embeddedSchemas: {},
+
   getId: _specialDateLocalGetId,
   getLinks: _specialDateLocalGetLinks,
   attach: _specialDateLocalAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _specialDateLocalEstimateSize(

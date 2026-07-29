@@ -17,9 +17,10 @@ dependencies:
   # State management
   flutter_riverpod: ^2.6.1
 
-  # Local DB (offline-first cache)
-  isar: ^3.1.0+1
-  isar_flutter_libs: ^3.1.0+1
+  # Local DB (offline-first cache) — maintained community fork of Isar 3
+  # (declares namespace + modern compileSdk, so it builds cleanly on AGP 8).
+  isar_community: ^3.3.2
+  isar_community_flutter_libs: ^3.3.2
   path_provider: ^2.1.5
 
   # Networking
@@ -58,7 +59,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  isar_generator: ^3.1.0+1
+  isar_community_generator: ^3.3.2
   build_runner: ^2.4.13
 
 flutter:
