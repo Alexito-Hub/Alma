@@ -1,7 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/device/home_widgets.dart';
+import '../../data/device/notifications.dart';
+import '../../data/remote/health_api.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/status_repository.dart';
 import '../../data/sync/hydrator.dart';
 import '../../data/sync/sync_worker.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
@@ -40,6 +46,8 @@ class _AppShellState extends ConsumerState<AppShell>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _sync();
+    // Android 13+ asks once; declining just means no partner alerts.
+    unawaited(Notifications.requestPermission());
   }
 
   @override
@@ -58,10 +66,34 @@ class _AppShellState extends ConsumerState<AppShell>
   /// Push local pending content and pull the partner's latest.
   void _sync() {
     runForegroundSync();
-    final couple = ref.read(currentUserProvider)?.coupleId;
+    final me = ref.read(currentUserProvider);
+    final couple = me?.coupleId;
     if (couple != null && couple.isNotEmpty) {
-      Hydrator.instance.hydrateAll(coupleId: couple);
+      Hydrator.instance.hydrateAll(
+        coupleId: couple,
+        selfUserId: me?.id,
+        partnerName: ref.read(partnerUserProvider)?.prettyName,
+      );
     }
+    // Keep the home-screen widgets fresh whenever the app is opened.
+    unawaited(_refreshWidgets());
+  }
+
+  Future<void> _refreshWidgets() async {
+    final partner = ref.read(partnerUserProvider);
+    final status = ref.read(partnerStatusProvider).valueOrNull;
+    if (status != null) {
+      await HomeWidgets.pushStatus(
+        author: partner?.prettyName,
+        text: status.text,
+        at: status.updatedAt,
+      );
+    }
+    final health = await HealthApi.fetch();
+    await HomeWidgets.pushServer(
+      status: health.status,
+      detail: health.headline,
+    );
   }
 
   void _select(int i) {

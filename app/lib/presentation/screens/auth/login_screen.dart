@@ -40,8 +40,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ref.read(partnerUserProvider.notifier).state = result.partner;
         final couple = result.me.coupleId;
         if (couple != null && couple.isNotEmpty) {
-          unawaited(Hydrator.instance.hydrateAll(coupleId: couple));
-          unawaited(Hydrator.instance.subscribeToLiveUpdates(couple));
+          unawaited(
+            Hydrator.instance.hydrateAll(
+              coupleId: couple,
+              selfUserId: result.me.id,
+              partnerName: result.partner?.prettyName,
+            ),
+          );
+          unawaited(
+            Hydrator.instance.subscribeToLiveUpdates(
+              couple,
+              selfUserId: result.me.id,
+              partnerName: result.partner?.prettyName,
+            ),
+          );
         }
       }
     } catch (e) {

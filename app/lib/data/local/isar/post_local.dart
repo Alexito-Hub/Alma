@@ -25,6 +25,10 @@ class PostLocal {
   @Index()
   late String syncStatus;
 
+  /// Private posts only show in the PIN-gated feed, never in the main one.
+  @Index()
+  bool isPrivate = false;
+
   int retryCount = 0;
   String? lastError;
 }

@@ -36,6 +36,7 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet>
   )..forward();
 
   bool _working = false;
+  bool _private = false;
 
   @override
   void dispose() {
@@ -98,10 +99,12 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet>
             authorId: me.id,
             tags: tags,
             media: [File(cropped)],
+            private: _private,
           );
       _postTitleCtrl.clear();
       _postTagsCtrl.clear();
-      _snack('Foto guardada');
+      _snack(_private ? 'Guardado en el feed privado' : 'Foto guardada');
+      if (mounted) setState(() => _private = false);
     });
   }
 
@@ -247,6 +250,23 @@ class _QuickActionSheetState extends ConsumerState<QuickActionSheet>
                                 hintText:
                                     'Tags separadas por espacio (#viaje #risa)',
                               ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                NeoChip(
+                                  icon: _private
+                                      ? Icons.lock_rounded
+                                      : Icons.lock_open_rounded,
+                                  label: _private
+                                      ? 'Privado (con PIN)'
+                                      : 'Normal',
+                                  selected: _private,
+                                  color: Neo.rose,
+                                  onTap: () =>
+                                      setState(() => _private = !_private),
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 14),
                             Row(

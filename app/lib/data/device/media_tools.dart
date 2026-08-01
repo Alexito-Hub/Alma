@@ -64,10 +64,12 @@ class MediaTools {
           final p = places.first;
           // Prefer the most specific parts (street/neighbourhood) so the label
           // is an actual place, not just the region.
-          final parts =
-              [p.street, p.subLocality, p.locality, p.administrativeArea]
-                  .where((s) => s != null && s.trim().isNotEmpty)
-                  .toList();
+          final parts = [
+            p.street,
+            p.subLocality,
+            p.locality,
+            p.administrativeArea,
+          ].where((s) => s != null && s.trim().isNotEmpty).toList();
           label = parts.isEmpty ? p.name : parts.take(3).join(', ');
         }
       } catch (_) {

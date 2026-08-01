@@ -17,9 +17,13 @@ class SpecialDateRepository {
   Isar get _isar => IsarService.instance.db;
 
   Stream<List<SpecialDateLocal>> watchAll() {
-    return _isar.specialDateLocals.where().sortByDate().watch(
-      fireImmediately: true,
-    );
+    // Tombstones (pending remote delete) stay hidden from the calendar.
+    return _isar.specialDateLocals
+        .filter()
+        .not()
+        .syncStatusEqualTo('deleted')
+        .sortByDate()
+        .watch(fireImmediately: true);
   }
 
   Future<void> create({
@@ -41,9 +45,20 @@ class SpecialDateRepository {
     });
   }
 
+  /// Never-synced rows are removed outright. Rows the server already has are
+  /// kept as hidden tombstones (`syncStatus == 'deleted'`) until the sync
+  /// worker confirms the remote DELETE — otherwise the next hydration would
+  /// resurrect them.
   Future<void> delete(int isarId) async {
     await _isar.writeTxn(() async {
-      await _isar.specialDateLocals.delete(isarId);
+      final row = await _isar.specialDateLocals.get(isarId);
+      if (row == null) return;
+      if (row.remoteId == null) {
+        await _isar.specialDateLocals.delete(isarId);
+      } else {
+        row.syncStatus = 'deleted';
+        await _isar.specialDateLocals.put(row);
+      }
     });
   }
 }

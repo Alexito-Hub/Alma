@@ -52,6 +52,8 @@ dependencies:
   video_player: ^2.9.2         # short-video playback
   geolocator: ^13.0.2          # entry geotag
   geocoding: ^3.0.0            # reverse-geocode to a place label
+  flutter_local_notifications: ^22.2.0
+  home_widget: ^0.9.3
   # NOTE: voice notes (record/audioplayers) are deferred — `record` has no
   # release compatible with the current Flutter/Dart SDK (needs Dart >=3.12).
 

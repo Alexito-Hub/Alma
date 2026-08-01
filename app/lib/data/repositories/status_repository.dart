@@ -1,12 +1,8 @@
-import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
-import 'package:phoenix_socket/phoenix_socket.dart';
 
-import '../../domain/entities/status_message.dart';
 import '../local/isar/status_local.dart';
 import '../local/isar_service.dart';
-import '../remote/ws_client.dart';
 import 'auth_repository.dart';
 
 final statusRepositoryProvider = Provider<StatusRepository>(
@@ -18,38 +14,34 @@ final statusRepositoryProvider = Provider<StatusRepository>(
 final myStatusProvider = StreamProvider.autoDispose<StatusLocal?>((ref) {
   final me = ref.watch(currentUserProvider);
   if (me == null) return Stream.value(null);
-  return ref.watch(statusRepositoryProvider).watchMine(me.id);
+  return ref.watch(statusRepositoryProvider).watchByAuthor(me.id);
 });
 
-/// The partner's live status, pushed over the couple WebSocket channel.
-/// Watching this provider also ensures we're subscribed to the channel.
-final partnerStatusProvider = StreamProvider.autoDispose<StatusMessage>((ref) {
-  final me = ref.watch(currentUserProvider);
+/// The partner's current status, read from the local cache — which both the
+/// initial hydration and the live couple channel keep fresh (see [Hydrator],
+/// the single owner of that subscription). Reading from Isar instead of only
+/// a live stream means it also shows right after an app restart, not just
+/// when the partner posts while we happen to be online.
+final partnerStatusProvider = StreamProvider.autoDispose<StatusLocal?>((ref) {
+  final partner = ref.watch(partnerUserProvider);
   final repo = ref.watch(statusRepositoryProvider);
-  final coupleId = me?.coupleId;
-  if (coupleId != null && coupleId.isNotEmpty) {
-    repo.subscribeToCouple(coupleId);
-  }
-  // The couple channel echoes our own broadcast back to us, so only surface
-  // the *partner's* status — drop anything we authored ourselves.
-  final myId = me?.id;
-  return repo.partnerStream().where((msg) => msg.authorId != myId);
+  final partnerId = partner?.id;
+  if (partnerId == null) return Stream<StatusLocal?>.value(null);
+  return repo.watchByAuthor(partnerId);
 });
 
+/// Local reads/writes for statuses. Incoming partner statuses are persisted by
+/// [Hydrator], which owns the couple channel.
 class StatusRepository {
   Isar get _isar => IsarService.instance.db;
-  PhoenixChannel? _channel;
-  final _partnerCtrl = StreamController<StatusMessage>.broadcast();
 
-  Stream<StatusLocal?> watchMine(String authorId) {
+  Stream<StatusLocal?> watchByAuthor(String authorId) {
     return _isar.statusLocals
         .filter()
         .authorIdEqualTo(authorId)
         .watch(fireImmediately: true)
         .map((list) => list.isEmpty ? null : list.first);
   }
-
-  Stream<StatusMessage> partnerStream() => _partnerCtrl.stream;
 
   Future<void> updateMine({
     required String authorId,
@@ -68,41 +60,5 @@ class StatusRepository {
     await _isar.writeTxn(() async {
       await _isar.statusLocals.put(row);
     });
-  }
-
-  String? _subscribedCoupleId;
-
-  Future<void> subscribeToCouple(String coupleId) async {
-    // Already wired to the same room — phoenix_socket only allows one
-    // join() per channel, so just no-op.
-    if (_subscribedCoupleId == coupleId && _channel != null) return;
-
-    // Switching couples (rare) or reconnecting: drop the old channel first.
-    if (_channel != null) {
-      try {
-        await _channel!.leave().future;
-      } catch (_) {
-        /* ignore */
-      }
-      _channel = null;
-    }
-
-    final socket = await WsClient.instance.connect();
-    final ch = socket.addChannel(topic: 'couple:$coupleId');
-    ch.messages.listen((msg) {
-      if (msg.event.value == 'status_updated' && msg.payload != null) {
-        _partnerCtrl.add(
-          StatusMessage.fromJson(Map<String, dynamic>.from(msg.payload!)),
-        );
-      }
-    });
-    await ch.join().future;
-    _channel = ch;
-    _subscribedCoupleId = coupleId;
-  }
-
-  Future<void> dispose() async {
-    await _channel?.leave().future;
-    await _partnerCtrl.close();
   }
 }

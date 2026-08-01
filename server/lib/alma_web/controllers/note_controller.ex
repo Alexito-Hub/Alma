@@ -13,4 +13,18 @@ defmodule AlmaWeb.NoteController do
     cid = conn.assigns.current_user["couple_id"]
     json(conn, %{notes: Notes.list_for_couple(cid)})
   end
+
+  def update(conn, %{"id" => id} = params) do
+    case Notes.update(conn.assigns.current_user, id, params) do
+      {:ok, note} -> json(conn, %{note: note})
+      {:error, _} -> conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
+
+  def delete(conn, %{"id" => id}) do
+    case Notes.delete(conn.assigns.current_user, id) do
+      :ok -> json(conn, %{ok: true})
+      {:error, _} -> conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
 end

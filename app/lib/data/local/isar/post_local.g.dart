@@ -32,38 +32,43 @@ const PostLocalSchema = CollectionSchema(
       name: r'description',
       type: IsarType.string,
     ),
-    r'lastError': PropertySchema(
+    r'isPrivate': PropertySchema(
       id: 3,
+      name: r'isPrivate',
+      type: IsarType.bool,
+    ),
+    r'lastError': PropertySchema(
+      id: 4,
       name: r'lastError',
       type: IsarType.string,
     ),
     r'localMediaPaths': PropertySchema(
-      id: 4,
+      id: 5,
       name: r'localMediaPaths',
       type: IsarType.stringList,
     ),
     r'remoteId': PropertySchema(
-      id: 5,
+      id: 6,
       name: r'remoteId',
       type: IsarType.string,
     ),
     r'remoteMediaUrls': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'remoteMediaUrls',
       type: IsarType.stringList,
     ),
     r'retryCount': PropertySchema(
-      id: 7,
+      id: 8,
       name: r'retryCount',
       type: IsarType.long,
     ),
     r'syncStatus': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'syncStatus',
       type: IsarType.string,
     ),
-    r'tags': PropertySchema(id: 9, name: r'tags', type: IsarType.stringList),
-    r'title': PropertySchema(id: 10, name: r'title', type: IsarType.string),
+    r'tags': PropertySchema(id: 10, name: r'tags', type: IsarType.stringList),
+    r'title': PropertySchema(id: 11, name: r'title', type: IsarType.string),
   },
 
   estimateSize: _postLocalEstimateSize,
@@ -108,6 +113,19 @@ const PostLocalSchema = CollectionSchema(
           name: r'syncStatus',
           type: IndexType.hash,
           caseSensitive: true,
+        ),
+      ],
+    ),
+    r'isPrivate': IndexSchema(
+      id: -6464805474184949590,
+      name: r'isPrivate',
+      unique: false,
+      replace: false,
+      properties: [
+        IndexPropertySchema(
+          name: r'isPrivate',
+          type: IndexType.value,
+          caseSensitive: false,
         ),
       ],
     ),
@@ -176,14 +194,15 @@ void _postLocalSerialize(
   writer.writeString(offsets[0], object.authorId);
   writer.writeDateTime(offsets[1], object.createdAt);
   writer.writeString(offsets[2], object.description);
-  writer.writeString(offsets[3], object.lastError);
-  writer.writeStringList(offsets[4], object.localMediaPaths);
-  writer.writeString(offsets[5], object.remoteId);
-  writer.writeStringList(offsets[6], object.remoteMediaUrls);
-  writer.writeLong(offsets[7], object.retryCount);
-  writer.writeString(offsets[8], object.syncStatus);
-  writer.writeStringList(offsets[9], object.tags);
-  writer.writeString(offsets[10], object.title);
+  writer.writeBool(offsets[3], object.isPrivate);
+  writer.writeString(offsets[4], object.lastError);
+  writer.writeStringList(offsets[5], object.localMediaPaths);
+  writer.writeString(offsets[6], object.remoteId);
+  writer.writeStringList(offsets[7], object.remoteMediaUrls);
+  writer.writeLong(offsets[8], object.retryCount);
+  writer.writeString(offsets[9], object.syncStatus);
+  writer.writeStringList(offsets[10], object.tags);
+  writer.writeString(offsets[11], object.title);
 }
 
 PostLocal _postLocalDeserialize(
@@ -196,15 +215,16 @@ PostLocal _postLocalDeserialize(
   object.authorId = reader.readString(offsets[0]);
   object.createdAt = reader.readDateTime(offsets[1]);
   object.description = reader.readString(offsets[2]);
+  object.isPrivate = reader.readBool(offsets[3]);
   object.isarId = id;
-  object.lastError = reader.readStringOrNull(offsets[3]);
-  object.localMediaPaths = reader.readStringList(offsets[4]) ?? [];
-  object.remoteId = reader.readStringOrNull(offsets[5]);
-  object.remoteMediaUrls = reader.readStringList(offsets[6]) ?? [];
-  object.retryCount = reader.readLong(offsets[7]);
-  object.syncStatus = reader.readString(offsets[8]);
-  object.tags = reader.readStringList(offsets[9]) ?? [];
-  object.title = reader.readString(offsets[10]);
+  object.lastError = reader.readStringOrNull(offsets[4]);
+  object.localMediaPaths = reader.readStringList(offsets[5]) ?? [];
+  object.remoteId = reader.readStringOrNull(offsets[6]);
+  object.remoteMediaUrls = reader.readStringList(offsets[7]) ?? [];
+  object.retryCount = reader.readLong(offsets[8]);
+  object.syncStatus = reader.readString(offsets[9]);
+  object.tags = reader.readStringList(offsets[10]) ?? [];
+  object.title = reader.readString(offsets[11]);
   return object;
 }
 
@@ -222,20 +242,22 @@ P _postLocalDeserializeProp<P>(
     case 2:
       return (reader.readString(offset)) as P;
     case 3:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 4:
-      return (reader.readStringList(offset) ?? []) as P;
-    case 5:
       return (reader.readStringOrNull(offset)) as P;
+    case 5:
+      return (reader.readStringList(offset) ?? []) as P;
     case 6:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 7:
-      return (reader.readLong(offset)) as P;
-    case 8:
-      return (reader.readString(offset)) as P;
-    case 9:
       return (reader.readStringList(offset) ?? []) as P;
+    case 8:
+      return (reader.readLong(offset)) as P;
+    case 9:
+      return (reader.readString(offset)) as P;
     case 10:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 11:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -266,6 +288,14 @@ extension PostLocalQueryWhereSort
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         const IndexWhereClause.any(indexName: r'createdAt'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterWhere> anyIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        const IndexWhereClause.any(indexName: r'isPrivate'),
       );
     });
   }
@@ -574,6 +604,60 @@ extension PostLocalQueryWhere
                 indexName: r'syncStatus',
                 lower: [],
                 upper: [syncStatus],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterWhereClause> isPrivateEqualTo(
+    bool isPrivate,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(indexName: r'isPrivate', value: [isPrivate]),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterWhereClause> isPrivateNotEqualTo(
+    bool isPrivate,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [],
+                upper: [isPrivate],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [isPrivate],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [isPrivate],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [],
+                upper: [isPrivate],
                 includeUpper: false,
               ),
             );
@@ -931,6 +1015,16 @@ extension PostLocalQueryFilter
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
         FilterCondition.greaterThan(property: r'description', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> isPrivateEqualTo(
+    bool value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'isPrivate', value: value),
       );
     });
   }
@@ -2317,6 +2411,18 @@ extension PostLocalQuerySortBy on QueryBuilder<PostLocal, PostLocal, QSortBy> {
     });
   }
 
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByIsPrivateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.desc);
+    });
+  }
+
   QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByLastError() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'lastError', Sort.asc);
@@ -2413,6 +2519,18 @@ extension PostLocalQuerySortThenBy
   QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByDescriptionDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'description', Sort.desc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByIsPrivateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.desc);
     });
   }
 
@@ -2513,6 +2631,12 @@ extension PostLocalQueryWhereDistinct
     });
   }
 
+  QueryBuilder<PostLocal, PostLocal, QDistinct> distinctByIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isPrivate');
+    });
+  }
+
   QueryBuilder<PostLocal, PostLocal, QDistinct> distinctByLastError({
     bool caseSensitive = true,
   }) {
@@ -2593,6 +2717,12 @@ extension PostLocalQueryProperty
   QueryBuilder<PostLocal, String, QQueryOperations> descriptionProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'description');
+    });
+  }
+
+  QueryBuilder<PostLocal, bool, QQueryOperations> isPrivateProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isPrivate');
     });
   }
 

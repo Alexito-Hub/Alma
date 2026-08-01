@@ -409,12 +409,16 @@ class NeoChip extends StatelessWidget {
   const NeoChip({
     super.key,
     required this.label,
+    this.icon,
     this.selected = false,
     this.color = Neo.lilac,
     this.onTap,
   });
 
   final String label;
+
+  /// Optional leading glyph. Icons — never emoji — are the house style.
+  final IconData? icon;
   final bool selected;
   final Color color;
   final VoidCallback? onTap;
@@ -429,13 +433,22 @@ class NeoChip extends StatelessWidget {
         borderRadius: Neo.cornerSm,
         boxShadow: selected ? Neo.shadow(const Offset(2, 2)) : const [],
       ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Neo.ink,
-          fontWeight: FontWeight.w800,
-          fontSize: 13,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 15, color: Neo.ink),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: const TextStyle(
+              color: Neo.ink,
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+        ],
       ),
     );
     if (onTap == null) return chip;

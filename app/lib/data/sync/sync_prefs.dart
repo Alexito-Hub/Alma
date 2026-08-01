@@ -16,4 +16,13 @@ class SyncPrefs {
   static Future<void> setWifiOnly(bool value) async {
     await _store.write(key: _keyWifiOnly, value: value ? '1' : '0');
   }
+
+  /// Last partner item we already notified about, per kind (`status`, `note`,
+  /// `post`). Stores the item's timestamp so the background tick can tell new
+  /// activity from what the user has already been told.
+  static Future<String?> marker(String kind) =>
+      _store.read(key: 'alma.notify.$kind');
+
+  static Future<void> setMarker(String kind, String stamp) =>
+      _store.write(key: 'alma.notify.$kind', value: stamp);
 }

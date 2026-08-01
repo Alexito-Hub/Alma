@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,13 +10,17 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/config/env.dart';
 import '../../../core/theme/neo.dart';
 import '../../../data/device/media_tools.dart';
+import '../../../data/local/diary_prefs.dart';
 import '../../../data/local/isar/note_local.dart';
 import '../../../data/local/isar/special_date_local.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/note_repository.dart';
 import '../../../data/repositories/special_date_repository.dart';
+import '../../../data/sync/sync_worker.dart';
+import '../../widgets/neo_confirm_dialog.dart';
 
 // Mood stays as emoji (the one place emoji reads best). Everything else uses
 // neo icons keyed by a stable string.
@@ -75,8 +81,24 @@ class DiaryScreen extends ConsumerStatefulWidget {
 class _DiaryScreenState extends ConsumerState<DiaryScreen> {
   bool _sending = false;
   bool _composerOpen = false;
+
+  /// Calendar starts collapsed; the preference is remembered across sessions.
+  bool _calendarOpen = false;
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    DiaryPrefs.calendarOpen().then((open) {
+      if (mounted && open) setState(() => _calendarOpen = true);
+    });
+  }
+
+  void _toggleCalendar() {
+    setState(() => _calendarOpen = !_calendarOpen);
+    unawaited(DiaryPrefs.setCalendarOpen(_calendarOpen));
+  }
 
   DateTime _key(DateTime d) => DateTime.utc(d.year, d.month, d.day);
 
@@ -145,12 +167,14 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
           emoji: result.iconKey,
           createdBy: me.id,
         );
+    // Push it to the server right away so the partner's calendar updates.
+    unawaited(runForegroundSync());
   }
 
   Future<void> _confirmDeleteSpecial(SpecialDateLocal s) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => _ConfirmDialog(
+      builder: (_) => NeoConfirmDialog(
         title: 'Eliminar fecha',
         message: '¿Quieres eliminar "${s.title}"? No se puede deshacer.',
         confirmLabel: 'Eliminar',
@@ -158,7 +182,43 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
     );
     if (ok == true) {
       await ref.read(specialDateRepositoryProvider).delete(s.isarId);
+      // Propagate the deletion to the server (tombstone → remote DELETE).
+      unawaited(runForegroundSync());
     }
+  }
+
+  Future<void> _confirmDeleteEntry(NoteLocal n) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => const NeoConfirmDialog(
+        title: 'Eliminar entrada',
+        message:
+            '¿Quieres eliminar esta entrada del diario? También desaparecerá '
+            'para tu pareja y no se puede deshacer.',
+        confirmLabel: 'Eliminar',
+      ),
+    );
+    if (ok == true) {
+      await ref.read(noteRepositoryProvider).delete(n.isarId);
+      unawaited(runForegroundSync());
+    }
+  }
+
+  Future<void> _editEntry(NoteLocal n) async {
+    final result = await showDialog<({String body, String? mood})>(
+      context: context,
+      builder: (_) => _EditEntryDialog(note: n),
+    );
+    if (result == null) return;
+    await ref
+        .read(noteRepositoryProvider)
+        .updateEntry(
+          isarId: n.isarId,
+          body: result.body,
+          mood: result.mood,
+          link: n.link,
+        );
+    unawaited(runForegroundSync());
   }
 
   @override
@@ -231,18 +291,30 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
                 children: [
-                  _CalendarCard(
-                    focusedDay: _focusedDay,
-                    selectedDay: _selectedDay,
-                    events: events,
-                    specials: specials,
-                    dayKey: _key,
-                    matchesDay: _matchesDay,
-                    onDaySelected: (selected, focused) => setState(() {
-                      _selectedDay = selected;
-                      _focusedDay = focused;
-                    }),
-                    onPageChanged: (focused) => _focusedDay = focused,
+                  _CalendarToggle(open: _calendarOpen, onTap: _toggleCalendar),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.topCenter,
+                    child: !_calendarOpen
+                        ? const SizedBox(width: double.infinity)
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 14),
+                            child: _CalendarCard(
+                              focusedDay: _focusedDay,
+                              selectedDay: _selectedDay,
+                              events: events,
+                              specials: specials,
+                              dayKey: _key,
+                              matchesDay: _matchesDay,
+                              onDaySelected: (selected, focused) =>
+                                  setState(() {
+                                    _selectedDay = selected;
+                                    _focusedDay = focused;
+                                  }),
+                              onPageChanged: (focused) => _focusedDay = focused,
+                            ),
+                          ),
                   ),
                   const SizedBox(height: 20),
                   if (memories.isNotEmpty) ...[
@@ -300,6 +372,12 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
                               : (partner?.prettyName ?? 'pareja'),
                           onReact: () => _react(n),
                           onOpenLink: () => _copyLink(context, n.link),
+                          onEdit: n.authorId == me?.id
+                              ? () => _editEntry(n)
+                              : null,
+                          onDelete: n.authorId == me?.id
+                              ? () => _confirmDeleteEntry(n)
+                              : null,
                         ),
                       ),
                 ],
@@ -430,6 +508,38 @@ Future<String?> _pickReaction(BuildContext context, String? current) {
 }
 
 // ─── calendar ────────────────────────────────────────────────────────────────
+
+/// Header row that expands/collapses the calendar (collapsed by default).
+class _CalendarToggle extends StatelessWidget {
+  const _CalendarToggle({required this.open, required this.onTap});
+  final bool open;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final txt = Theme.of(context).textTheme;
+    return NeoBox(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      shadowOffset: Neo.shadowSm,
+      child: Row(
+        children: [
+          const Icon(Icons.calendar_month_rounded, size: 18, color: Neo.ink),
+          const SizedBox(width: 8),
+          Text('Calendario', style: txt.labelLarge),
+          const Spacer(),
+          Icon(
+            open
+                ? Icons.keyboard_arrow_up_rounded
+                : Icons.keyboard_arrow_down_rounded,
+            size: 22,
+            color: Neo.ink,
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _CalendarCard extends StatelessWidget {
   const _CalendarCard({
@@ -578,6 +688,8 @@ class _MomentoCard extends StatelessWidget {
     required this.author,
     required this.onReact,
     required this.onOpenLink,
+    this.onEdit,
+    this.onDelete,
   });
 
   final NoteLocal note;
@@ -585,6 +697,8 @@ class _MomentoCard extends StatelessWidget {
   final String author;
   final VoidCallback onReact;
   final VoidCallback onOpenLink;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -623,6 +737,13 @@ class _MomentoCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(author, style: txt.labelLarge?.copyWith(color: Neo.ink)),
                 const Spacer(),
+                if (onEdit != null)
+                  _HeaderAction(icon: Icons.edit_outlined, onTap: onEdit!),
+                if (onDelete != null)
+                  _HeaderAction(
+                    icon: Icons.delete_outline_rounded,
+                    onTap: onDelete!,
+                  ),
                 Text(
                   time,
                   style: txt.labelSmall?.copyWith(
@@ -633,8 +754,15 @@ class _MomentoCard extends StatelessWidget {
             ),
           ),
           if (note.imagePaths.isNotEmpty)
-            _PhotoCarousel(paths: note.imagePaths),
-          if (note.videoPath != null) _VideoTile(path: note.videoPath!),
+            _PhotoCarousel(paths: note.imagePaths)
+          else if (note.remoteImageUrls.isNotEmpty)
+            _PhotoCarousel(
+              paths: note.remoteImageUrls.map(_withBaseUrl).toList(),
+            ),
+          if (note.videoPath != null)
+            _VideoTile(path: note.videoPath!)
+          else if (note.remoteVideoUrl != null)
+            _VideoTile(path: _withBaseUrl(note.remoteVideoUrl!), remote: true),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: SelectableText(
@@ -763,6 +891,12 @@ class _Chip extends StatelessWidget {
   }
 }
 
+/// Resolve a stored media reference to something displayable: a full remote
+/// URL (already absolute, or relative to the API host) is left/made absolute;
+/// a local file path is returned untouched.
+String _withBaseUrl(String u) =>
+    u.startsWith('http') ? u : '${Env.apiBaseUrl}$u';
+
 class _PhotoCarousel extends StatefulWidget {
   const _PhotoCarousel({required this.paths});
   final List<String> paths;
@@ -798,12 +932,20 @@ class _PhotoCarouselState extends State<_PhotoCarousel> {
               onPageChanged: (i) => setState(() => _page = i),
               children: [
                 for (final p in widget.paths)
-                  Image.file(
-                    File(p),
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) =>
-                        const ColoredBox(color: Color(0xFFF3E6CF)),
-                  ),
+                  if (p.startsWith('http'))
+                    CachedNetworkImage(
+                      imageUrl: p,
+                      fit: BoxFit.cover,
+                      errorWidget: (_, _, _) =>
+                          const ColoredBox(color: Color(0xFFF3E6CF)),
+                    )
+                  else
+                    Image.file(
+                      File(p),
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) =>
+                          const ColoredBox(color: Color(0xFFF3E6CF)),
+                    ),
               ],
             ),
           ),
@@ -836,8 +978,9 @@ class _PhotoCarouselState extends State<_PhotoCarousel> {
 
 /// Short video: shows a tap-to-play cover, then plays inline (no autoplay).
 class _VideoTile extends StatefulWidget {
-  const _VideoTile({required this.path});
+  const _VideoTile({required this.path, this.remote = false});
   final String path;
+  final bool remote;
 
   @override
   State<_VideoTile> createState() => _VideoTileState();
@@ -848,7 +991,9 @@ class _VideoTileState extends State<_VideoTile> {
   bool _ready = false;
 
   Future<void> _initAndPlay() async {
-    final c = VideoPlayerController.file(File(widget.path));
+    final c = widget.remote
+        ? VideoPlayerController.networkUrl(Uri.parse(widget.path))
+        : VideoPlayerController.file(File(widget.path));
     _controller = c;
     try {
       await c.initialize();
@@ -1046,17 +1191,58 @@ class _SpecialDateCard extends StatelessWidget {
   }
 }
 
-/// Neo-styled yes/no confirmation. Pops `true` when the user taps the confirm
-/// button, `false`/null otherwise.
-class _ConfirmDialog extends StatelessWidget {
-  const _ConfirmDialog({
-    required this.title,
-    required this.message,
-    required this.confirmLabel,
-  });
-  final String title;
-  final String message;
-  final String confirmLabel;
+/// Compact tap target used in the entry-card header (edit / delete own entry).
+class _HeaderAction extends StatelessWidget {
+  const _HeaderAction({required this.icon, required this.onTap});
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 26,
+        height: 26,
+        margin: const EdgeInsets.only(right: 6),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Neo.white,
+          border: Neo.borderThin,
+          borderRadius: Neo.cornerSm,
+        ),
+        child: Icon(icon, size: 14, color: Neo.ink),
+      ),
+    );
+  }
+}
+
+/// Text-only edit of an own diary entry: body + mood. Media stays immutable.
+class _EditEntryDialog extends StatefulWidget {
+  const _EditEntryDialog({required this.note});
+  final NoteLocal note;
+
+  @override
+  State<_EditEntryDialog> createState() => _EditEntryDialogState();
+}
+
+class _EditEntryDialogState extends State<_EditEntryDialog> {
+  late final TextEditingController _body = TextEditingController(
+    text: widget.note.body,
+  );
+  String? _mood;
+
+  @override
+  void initState() {
+    super.initState();
+    _mood = widget.note.mood;
+  }
+
+  @override
+  void dispose() {
+    _body.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1070,14 +1256,43 @@ class _ConfirmDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(title, style: txt.titleLarge, textAlign: TextAlign.center),
-            const SizedBox(height: 10),
             Text(
-              message,
+              'Editar entrada',
+              style: txt.titleLarge,
               textAlign: TextAlign.center,
-              style: txt.bodyMedium?.copyWith(
-                color: Neo.ink.withValues(alpha: .7),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _body,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 6,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                hintText: 'Lo que quieras recordar…',
               ),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final m in _moods)
+                  GestureDetector(
+                    onTap: () => setState(() => _mood = _mood == m ? null : m),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: _mood == m ? Neo.yellow : Neo.white,
+                        border: Neo.borderThin,
+                        borderRadius: Neo.cornerSm,
+                      ),
+                      child: Text(m, style: const TextStyle(fontSize: 18)),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 18),
             Row(
@@ -1087,16 +1302,19 @@ class _ConfirmDialog extends StatelessWidget {
                     label: 'Cancelar',
                     color: Neo.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () => Navigator.pop(context, false),
+                    onPressed: () => Navigator.pop(context),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: NeoButton(
-                    label: confirmLabel,
-                    color: Neo.rose,
+                    label: 'Guardar',
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () => Navigator.pop(context, true),
+                    onPressed: () {
+                      final t = _body.text.trim();
+                      if (t.isEmpty) return;
+                      Navigator.pop(context, (body: t, mood: _mood));
+                    },
                   ),
                 ),
               ],

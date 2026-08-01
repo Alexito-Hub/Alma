@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:isar_community/isar.dart';
 
+import '../device/home_widgets.dart';
+import '../device/notifications.dart';
 import '../local/isar/note_local.dart';
 import '../local/isar/post_local.dart';
 import '../local/isar/special_date_local.dart';
@@ -22,8 +24,26 @@ class Hydrator {
   final _dio = ApiClient.instance.dio;
   Isar get _isar => IsarService.instance.db;
 
+  /// The signed-in user's id. Lets us (a) ignore our own events echoed back on
+  /// the couple channel and (b) attach pulled docs to the pending local row
+  /// that created them (via client_id) instead of duplicating it.
+  String? _selfId;
+
+  /// Partner's display name, used to title the notifications and the widget.
+  String? _partnerName;
+
+  set partnerName(String? name) {
+    if (name != null && name.isNotEmpty) _partnerName = name;
+  }
+
   /// Full initial sync. Safe to call repeatedly.
-  Future<void> hydrateAll({required String? coupleId}) async {
+  Future<void> hydrateAll({
+    required String? coupleId,
+    String? selfUserId,
+    String? partnerName,
+  }) async {
+    if (selfUserId != null) _selfId = selfUserId;
+    this.partnerName = partnerName;
     if (coupleId == null) return;
     await Future.wait([
       _pullNotes(),
@@ -39,10 +59,17 @@ class Hydrator {
   /// Subscribe to the couple channel so live new_post/new_note from the
   /// partner are persisted as soon as they happen. `onPartnerUpdated` is
   /// invoked when the partner changes profile data (avatar, email).
+  /// Sole owner of the `couple:<id>` channel — Phoenix rejects a second join
+  /// on the same topic from one socket, so every couple event (posts, notes,
+  /// special dates *and* status) is dispatched from here.
   Future<void> subscribeToLiveUpdates(
     String coupleId, {
+    String? selfUserId,
+    String? partnerName,
     void Function(Map<String, dynamic>)? onPartnerUpdated,
   }) async {
+    if (selfUserId != null) _selfId = selfUserId;
+    this.partnerName = partnerName;
     // phoenix_socket asserts that a channel only joins once; reuse the
     // existing subscription if we're already on the right couple.
     if (_subscribedCoupleId == coupleId && _wsSub != null) return;
@@ -57,15 +84,52 @@ class Hydrator {
         final payload = msg.payload;
         if (payload == null) return;
         final p = Map<String, dynamic>.from(payload);
+        // The server echoes our own broadcasts back to us. Our rows are
+        // managed by the sync-ack path; upserting the echo here would race
+        // the ack (no remoteId yet) and insert a duplicate.
+        final fromSelf =
+            _selfId != null && p['author_id']?.toString() == _selfId;
         switch (ev) {
           case 'new_post':
-            await _upsertPost(p);
+            if (!fromSelf) {
+              await _upsertPost(p);
+              await Notifications.partnerPost(
+                _partnerName,
+                p['title']?.toString() ?? '',
+              );
+            }
+            break;
+          case 'post_updated':
+            if (!fromSelf) await _upsertPost(p);
             break;
           case 'new_note':
-            await _upsertNote(p);
+            if (!fromSelf) {
+              await _upsertNote(p);
+              await Notifications.partnerNote(
+                _partnerName,
+                p['body']?.toString() ?? '',
+              );
+            }
+            break;
+          case 'note_updated':
+            if (!fromSelf) await _upsertNote(p);
+            break;
+          case 'status_updated':
+            if (!fromSelf) await _onPartnerStatus(p);
             break;
           case 'new_special_date':
-            await _upsertSpecialDate(p);
+            if (!fromSelf) await _upsertSpecialDate(p);
+            break;
+          case 'note_deleted':
+            await _deleteNoteByRemoteId((p['id'] ?? p['_id'])?.toString());
+            break;
+          case 'post_deleted':
+            await _deletePostByRemoteId((p['id'] ?? p['_id'])?.toString());
+            break;
+          case 'special_date_deleted':
+            await _deleteSpecialDateByRemoteId(
+              (p['id'] ?? p['_id'])?.toString(),
+            );
             break;
           case 'partner_updated':
             onPartnerUpdated?.call(p);
@@ -167,10 +231,20 @@ class Hydrator {
   Future<void> _upsertNoteInTxn(Map<String, dynamic> j) async {
     final remoteId = (j['_id'] ?? j['id'])?.toString();
     if (remoteId == null) return;
-    final existing = await _isar.noteLocals
+    var existing = await _isar.noteLocals
         .filter()
         .remoteIdEqualTo(remoteId)
         .findFirst();
+    // A doc I authored may already exist locally as the pending row that
+    // produced it (lost ack / pull racing the ack). Its client_id is that
+    // row's isar id — attach to it instead of inserting a duplicate.
+    existing ??= await _mineByClientId(j, _isar.noteLocals.get);
+    // Local mutations win until pushed: don't resurrect a tombstone or
+    // clobber an unsent edit with the server's stale copy.
+    if (existing != null &&
+        (existing.syncStatus == 'deleted' || existing.syncStatus == 'edited')) {
+      return;
+    }
     final row = existing ?? NoteLocal();
     row
       ..remoteId = remoteId
@@ -198,10 +272,16 @@ class Hydrator {
   Future<void> _upsertPostInTxn(Map<String, dynamic> j) async {
     final remoteId = (j['_id'] ?? j['id'])?.toString();
     if (remoteId == null) return;
-    final existing = await _isar.postLocals
+    var existing = await _isar.postLocals
         .filter()
         .remoteIdEqualTo(remoteId)
         .findFirst();
+    existing ??= await _mineByClientId(j, _isar.postLocals.get);
+    // Local mutations win until pushed (see note upsert).
+    if (existing != null &&
+        (existing.syncStatus == 'deleted' || existing.syncStatus == 'edited')) {
+      return;
+    }
     final row = existing ?? PostLocal();
     row
       ..remoteId = remoteId
@@ -211,6 +291,7 @@ class Hydrator {
       ..tags = (j['tags'] as List? ?? const [])
           .map((t) => t.toString())
           .toList()
+      ..isPrivate = j['private'] == true
       ..localMediaPaths = const []
       ..remoteMediaUrls = (j['media_urls'] as List? ?? const [])
           .map((u) => u.toString())
@@ -218,6 +299,19 @@ class Hydrator {
       ..createdAt = _date(j['created_at']) ?? DateTime.now()
       ..syncStatus = 'synced';
     await _isar.postLocals.put(row);
+  }
+
+  /// Partner published a new "siente": cache it, notify, refresh the widget.
+  Future<void> _onPartnerStatus(Map<String, dynamic> j) async {
+    await _isar.writeTxn(() => _upsertStatusInTxn(j));
+    final text = j['text']?.toString() ?? '';
+    if (text.trim().isEmpty) return;
+    await Notifications.partnerStatus(_partnerName, text);
+    await HomeWidgets.pushStatus(
+      author: _partnerName,
+      text: text,
+      at: _date(j['updated_at']),
+    );
   }
 
   Future<void> _upsertStatusInTxn(Map<String, dynamic> j) async {
@@ -260,13 +354,66 @@ class Hydrator {
   Future<void> _upsertSpecialDate(Map<String, dynamic> j) =>
       _isar.writeTxn(() => _upsertSpecialDateInTxn(j));
 
+  /// Resolves the local row a self-authored server doc originated from, via
+  /// its client_id (the originating device's isar id). Only rows that never
+  /// got a remoteId qualify — anything else is someone else's data.
+  Future<T?> _mineByClientId<T>(
+    Map<String, dynamic> j,
+    Future<T?> Function(int) getById,
+  ) async {
+    if (_selfId == null || j['author_id']?.toString() != _selfId) return null;
+    final cid = int.tryParse(j['client_id']?.toString() ?? '');
+    if (cid == null) return null;
+    final mine = await getById(cid);
+    if (mine == null) return null;
+    final dyn = mine as dynamic;
+    return dyn.remoteId == null ? mine : null;
+  }
+
+  Future<void> _deleteSpecialDateByRemoteId(String? remoteId) async {
+    if (remoteId == null) return;
+    await _isar.writeTxn(() async {
+      final row = await _isar.specialDateLocals
+          .filter()
+          .remoteIdEqualTo(remoteId)
+          .findFirst();
+      if (row != null) await _isar.specialDateLocals.delete(row.isarId);
+    });
+  }
+
+  Future<void> _deleteNoteByRemoteId(String? remoteId) async {
+    if (remoteId == null) return;
+    await _isar.writeTxn(() async {
+      final row = await _isar.noteLocals
+          .filter()
+          .remoteIdEqualTo(remoteId)
+          .findFirst();
+      if (row != null) await _isar.noteLocals.delete(row.isarId);
+    });
+  }
+
+  Future<void> _deletePostByRemoteId(String? remoteId) async {
+    if (remoteId == null) return;
+    await _isar.writeTxn(() async {
+      final row = await _isar.postLocals
+          .filter()
+          .remoteIdEqualTo(remoteId)
+          .findFirst();
+      if (row != null) await _isar.postLocals.delete(row.isarId);
+    });
+  }
+
   Future<void> _upsertSpecialDateInTxn(Map<String, dynamic> j) async {
     final remoteId = (j['_id'] ?? j['id'])?.toString();
     if (remoteId == null) return;
-    final existing = await _isar.specialDateLocals
+    var existing = await _isar.specialDateLocals
         .filter()
         .remoteIdEqualTo(remoteId)
         .findFirst();
+    existing ??= await _mineByClientId(j, _isar.specialDateLocals.get);
+    // Tombstone: locally deleted, remote DELETE still in flight — don't
+    // resurrect it from a pull.
+    if (existing != null && existing.syncStatus == 'deleted') return;
     final row = existing ?? SpecialDateLocal();
     row
       ..remoteId = remoteId
@@ -287,7 +434,9 @@ class Hydrator {
 
   DateTime? _date(dynamic v) {
     if (v == null) return null;
-    if (v is String) return DateTime.tryParse(v);
+    // Server timestamps are UTC; convert to local so day-based grouping
+    // (calendar cells, "un día como hoy") lands on the right day.
+    if (v is String) return DateTime.tryParse(v)?.toLocal();
     return null;
   }
 }

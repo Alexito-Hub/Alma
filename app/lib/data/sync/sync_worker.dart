@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
@@ -6,14 +7,18 @@ import 'package:isar_community/isar.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../../core/config/env.dart';
+import '../device/home_widgets.dart';
+import '../device/notifications.dart';
 import '../local/isar/comment_local.dart';
 import '../local/isar/note_local.dart';
 import '../local/isar/post_local.dart';
 import '../local/isar/special_date_local.dart';
 import '../local/isar/status_local.dart';
 import '../local/isar_service.dart';
+import '../local/user_cache.dart';
 import '../remote/api_client.dart';
 import '../remote/endpoints.dart';
+import '../remote/health_api.dart';
 import '../remote/token_storage.dart';
 import 'sync_prefs.dart';
 
@@ -37,6 +42,10 @@ void syncCallbackDispatcher() {
 }
 
 Future<void> _runSync() async {
+  // Background isolates don't get the plugin registrant for free; without this
+  // secure storage, notifications and the widget bridge are all unavailable.
+  DartPluginRegistrant.ensureInitialized();
+
   final conn = await Connectivity().checkConnectivity();
   if (conn.contains(ConnectivityResult.none)) return;
 
@@ -65,10 +74,112 @@ Future<void> _runSync() async {
   await _reviveStalled(isar);
 
   await _syncNotes(isar, dio);
+  await _syncNoteMutations(isar, dio);
   await _syncStatus(isar, dio);
   await _syncPosts(isar, dio);
+  await _syncPostMutations(isar, dio);
   await _syncComments(isar, dio);
   await _syncSpecialDates(isar, dio);
+
+  // With the app closed there is no WebSocket, so this tick is what surfaces
+  // the partner's activity and keeps the home-screen widgets current.
+  await _notifyPartnerActivity(dio);
+  await _refreshServerWidget();
+}
+
+/// Poll for partner activity and raise a notification for anything new.
+///
+/// Markers hold the timestamp of the last item we already announced; the very
+/// first run only records them, so installing the app never fires a burst of
+/// notifications about old content.
+Future<void> _notifyPartnerActivity(Dio dio) async {
+  final session = await UserCache.read();
+  final myId = session?.me.id;
+  if (myId == null) return;
+  final partnerName = session?.partner?.prettyName;
+
+  // Status ("siente").
+  try {
+    final res = await dio.get(Endpoints.status);
+    final partner = _newestFrom(res.data['statuses'], myId, 'updated_at');
+    final text = partner?['text']?.toString().trim() ?? '';
+    final stamp = partner?['updated_at']?.toString() ?? '';
+    if (text.isNotEmpty && stamp.isNotEmpty) {
+      if (await _isNewSince('status', stamp)) {
+        await Notifications.partnerStatus(partnerName, text);
+      }
+      await HomeWidgets.pushStatus(
+        author: partnerName,
+        text: text,
+        at: DateTime.tryParse(stamp)?.toLocal(),
+      );
+    }
+  } catch (_) {
+    /* offline or server down — try again next tick */
+  }
+
+  // Diary entries.
+  try {
+    final res = await dio.get(Endpoints.notes);
+    final note = _newestFrom(res.data['notes'], myId, 'created_at');
+    final stamp = note?['created_at']?.toString() ?? '';
+    if (stamp.isNotEmpty && await _isNewSince('note', stamp)) {
+      await Notifications.partnerNote(
+        partnerName,
+        note?['body']?.toString() ?? '',
+      );
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  // Feed posts.
+  try {
+    final res = await dio.get(Endpoints.posts);
+    final post = _newestFrom(res.data['posts'], myId, 'created_at');
+    final stamp = post?['created_at']?.toString() ?? '';
+    if (stamp.isNotEmpty && await _isNewSince('post', stamp)) {
+      await Notifications.partnerPost(
+        partnerName,
+        post?['title']?.toString() ?? '',
+      );
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/// Newest entry in [raw] not authored by [myId], by the [field] timestamp.
+Map<String, dynamic>? _newestFrom(dynamic raw, String myId, String field) {
+  if (raw is! List) return null;
+  Map<String, dynamic>? best;
+  DateTime? bestAt;
+  for (final item in raw) {
+    if (item is! Map) continue;
+    final j = Map<String, dynamic>.from(item);
+    if (j['author_id']?.toString() == myId) continue;
+    final at = DateTime.tryParse(j[field]?.toString() ?? '');
+    if (at == null) continue;
+    if (bestAt == null || at.isAfter(bestAt)) {
+      best = j;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+/// True when [stamp] is newer than what we last announced for [kind]. Always
+/// records the stamp; returns false on the first ever call (baseline only).
+Future<bool> _isNewSince(String kind, String stamp) async {
+  final seen = await SyncPrefs.marker(kind);
+  if (seen == stamp) return false;
+  await SyncPrefs.setMarker(kind, stamp);
+  return seen != null;
+}
+
+Future<void> _refreshServerWidget() async {
+  final health = await HealthApi.fetch();
+  await HomeWidgets.pushServer(status: health.status, detail: health.headline);
 }
 
 /// Foreground push of everything pending. Called from the UI right after the
@@ -89,8 +200,10 @@ Future<void> runForegroundSync() async {
     // uploads a fresh chance.
     await _reviveStalled(isar, includeFailed: true);
     await _syncNotes(isar, dio);
+    await _syncNoteMutations(isar, dio);
     await _syncStatus(isar, dio);
     await _syncPosts(isar, dio);
+    await _syncPostMutations(isar, dio);
     await _syncComments(isar, dio);
     await _syncSpecialDates(isar, dio);
   } catch (_) {
@@ -185,7 +298,10 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
       'client_id': n.isarId.toString(),
       'body': n.body,
       'author_id': n.authorId,
-      'created_at': n.createdAt.toIso8601String(),
+      // Always ship UTC ("Z" suffix) — a zone-less local timestamp fails the
+      // server's ISO8601 parse and silently falls back to "now", which is how
+      // entries/dates ended up on the wrong day.
+      'created_at': n.createdAt.toUtc().toIso8601String(),
       'mood': n.mood,
       'link': n.link,
       'image_urls': n.remoteImageUrls,
@@ -207,10 +323,107 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
         final n = await isar.noteLocals.get(int.parse(ack['client_id']));
         if (n == null) continue;
         n.remoteId = ack['id']?.toString();
-        n.syncStatus = 'synced';
+        // Only flip pending→synced; an edit/delete made mid-flight keeps its
+        // flag (and, now that remoteId is set, gets pushed on the next pass).
+        if (n.syncStatus == 'pending') n.syncStatus = 'synced';
         await isar.noteLocals.put(n);
       }
     });
+  }
+}
+
+/// Push text edits (PUT) and deletions (DELETE) of diary entries. Deletions
+/// are tombstones: the local row only disappears once the server confirms.
+Future<void> _syncNoteMutations(Isar isar, Dio dio) async {
+  final edited = await isar.noteLocals
+      .filter()
+      .syncStatusEqualTo('edited')
+      .findAll();
+  for (final n in edited) {
+    final rid = n.remoteId;
+    if (rid == null) continue;
+    try {
+      final res = await dio.put(
+        Endpoints.note(rid),
+        data: {'body': n.body, 'mood': n.mood, 'link': n.link},
+      );
+      if (res.statusCode == 200) {
+        await isar.writeTxn(() async {
+          n.syncStatus = 'synced';
+          await isar.noteLocals.put(n);
+        });
+      }
+    } catch (_) {
+      // Retry next tick.
+    }
+  }
+
+  final deleted = await isar.noteLocals
+      .filter()
+      .syncStatusEqualTo('deleted')
+      .findAll();
+  for (final n in deleted) {
+    if (await _remoteDeleteOk(dio, n.remoteId, Endpoints.note)) {
+      await isar.writeTxn(() async {
+        await isar.noteLocals.delete(n.isarId);
+      });
+    }
+  }
+}
+
+/// Same as [_syncNoteMutations], for feed posts (title/description/tags).
+Future<void> _syncPostMutations(Isar isar, Dio dio) async {
+  final edited = await isar.postLocals
+      .filter()
+      .syncStatusEqualTo('edited')
+      .findAll();
+  for (final p in edited) {
+    final rid = p.remoteId;
+    if (rid == null) continue;
+    try {
+      final res = await dio.put(
+        Endpoints.post(rid),
+        data: {'title': p.title, 'description': p.description, 'tags': p.tags},
+      );
+      if (res.statusCode == 200) {
+        await isar.writeTxn(() async {
+          p.syncStatus = 'synced';
+          await isar.postLocals.put(p);
+        });
+      }
+    } catch (_) {
+      // Retry next tick.
+    }
+  }
+
+  final deleted = await isar.postLocals
+      .filter()
+      .syncStatusEqualTo('deleted')
+      .findAll();
+  for (final p in deleted) {
+    if (await _remoteDeleteOk(dio, p.remoteId, Endpoints.post)) {
+      await isar.writeTxn(() async {
+        await isar.postLocals.delete(p.isarId);
+      });
+    }
+  }
+}
+
+/// DELETE `pathFor(remoteId)`; true when the doc is gone (deleted now, never
+/// synced, or already absent). False on network trouble → retry next tick.
+Future<bool> _remoteDeleteOk(
+  Dio dio,
+  String? remoteId,
+  String Function(String) pathFor,
+) async {
+  if (remoteId == null) return true;
+  try {
+    await dio.delete(pathFor(remoteId));
+    return true;
+  } on DioException catch (e) {
+    return e.response?.statusCode == 404;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -241,10 +454,12 @@ Future<void> _syncSpecialDates(Isar isar, Dio dio) async {
       final res = await dio.post(
         Endpoints.specialDates,
         data: {
+          // Idempotency key — a retry after a lost ack updates, not duplicates.
+          'client_id': s.isarId.toString(),
           'title': s.title,
           'emoji': s.emoji,
           'recurring': s.recurring,
-          'date': s.date.toIso8601String(),
+          'date': s.date.toUtc().toIso8601String(),
         },
       );
       if (res.statusCode == 200 || res.statusCode == 201) {
@@ -259,6 +474,21 @@ Future<void> _syncSpecialDates(Isar isar, Dio dio) async {
       // Stays pending for the next tick.
     }
   }
+
+  // Tombstones: locally-deleted rows whose server copy must go too. Only once
+  // the remote DELETE is confirmed (or the doc is already gone) do we drop the
+  // local row — otherwise hydration would resurrect it.
+  final deleted = await isar.specialDateLocals
+      .filter()
+      .syncStatusEqualTo('deleted')
+      .findAll();
+  for (final s in deleted) {
+    if (await _remoteDeleteOk(dio, s.remoteId, Endpoints.specialDate)) {
+      await isar.writeTxn(() async {
+        await isar.specialDateLocals.delete(s.isarId);
+      });
+    }
+  }
 }
 
 Future<void> _syncStatus(Isar isar, Dio dio) async {
@@ -269,7 +499,10 @@ Future<void> _syncStatus(Isar isar, Dio dio) async {
   for (final s in pending) {
     final res = await dio.put(
       Endpoints.status,
-      data: {'text': s.text, 'updated_at': s.updatedAt.toIso8601String()},
+      data: {
+        'text': s.text,
+        'updated_at': s.updatedAt.toUtc().toIso8601String(),
+      },
     );
     if (res.statusCode == 200) {
       await isar.writeTxn(() async {
@@ -317,7 +550,8 @@ Future<void> _syncPosts(Isar isar, Dio dio) async {
           'description': p.description,
           'tags': p.tags,
           'media_urls': remoteUrls,
-          'created_at': p.createdAt.toIso8601String(),
+          'private': p.isPrivate,
+          'created_at': p.createdAt.toUtc().toIso8601String(),
         },
       );
 

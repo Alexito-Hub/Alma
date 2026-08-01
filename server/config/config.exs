@@ -3,7 +3,9 @@ import Config
 config :alma,
   generators: [timestamp_type: :utc_datetime],
   media_root: System.get_env("ALMA_MEDIA_ROOT") || "priv/static/media",
-  media_public_prefix: "/media"
+  media_public_prefix: "/media",
+  # Surfaced by the health endpoint; works in releases too (no Mix at runtime).
+  env: config_env()
 
 config :alma, AlmaWeb.Endpoint,
   url: [host: "localhost"],

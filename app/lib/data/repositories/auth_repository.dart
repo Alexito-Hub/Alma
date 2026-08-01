@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/entities/user.dart';
 import '../local/isar_service.dart';
+import '../local/user_cache.dart';
 import '../remote/api_client.dart';
 import '../remote/endpoints.dart';
 import '../remote/token_storage.dart';
@@ -48,12 +50,14 @@ class AuthRepository {
     final token = await TokenStorage.read();
     if (token == null) return null;
     final res = await _dio.get(Endpoints.me);
-    final user = User.fromJson(
-      Map<String, dynamic>.from(res.data['user'] as Map),
-    );
-    final partner = res.data['partner'] == null
+    final rawUser = Map<String, dynamic>.from(res.data['user'] as Map);
+    final rawPartner = res.data['partner'] == null
         ? null
-        : User.fromJson(Map<String, dynamic>.from(res.data['partner'] as Map));
+        : Map<String, dynamic>.from(res.data['partner'] as Map);
+    // Refresh the offline-session snapshot on every successful round-trip.
+    unawaited(UserCache.write(rawUser, rawPartner));
+    final user = User.fromJson(rawUser);
+    final partner = rawPartner == null ? null : User.fromJson(rawPartner);
     return AuthResult(me: user, partner: partner);
   }
 
@@ -92,6 +96,7 @@ class AuthRepository {
 
   Future<void> logout() async {
     await TokenStorage.clear();
+    await UserCache.clear();
     // Drop every cached row so the next account that signs in on this
     // device starts clean.
     try {

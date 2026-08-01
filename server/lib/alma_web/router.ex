@@ -12,6 +12,14 @@ defmodule AlmaWeb.Router do
     plug AlmaWeb.Plugs.Auth
   end
 
+  # Public health probe — unauthenticated on purpose so uptime monitors (and a
+  # plain browser) can reach it. Data-volume details live behind auth below.
+  scope "/", AlmaWeb do
+    pipe_through :api
+
+    get "/health", HealthController, :show
+  end
+
   scope "/api", AlmaWeb do
     pipe_through :api
 
@@ -21,6 +29,9 @@ defmodule AlmaWeb.Router do
 
   scope "/api", AlmaWeb do
     pipe_through [:api, :authed]
+
+    # Same report as /health plus database stats and collection counts.
+    get "/health", HealthController, :detailed
 
     get "/auth/me", AuthController, :me
     put "/auth/avatar", AuthController, :update_avatar
@@ -38,13 +49,18 @@ defmodule AlmaWeb.Router do
     get "/couple/settings", CoupleSettingsController, :show
     put "/couple/settings", CoupleSettingsController, :update
 
+    # Couple-shared PIN gating the private feed.
+    get "/couple/pin", CoupleSettingsController, :pin_status
+    put "/couple/pin", CoupleSettingsController, :set_pin
+    post "/couple/pin/verify", CoupleSettingsController, :verify_pin
+
     post "/sync/batch", SyncController, :batch
 
-    resources "/posts", PostController, only: [:create, :index, :show]
+    resources "/posts", PostController, only: [:create, :index, :show, :update, :delete]
     post "/posts/:id/comments", CommentController, :create
     get "/posts/:id/comments", CommentController, :index
 
-    resources "/notes", NoteController, only: [:create, :index]
+    resources "/notes", NoteController, only: [:create, :index, :update, :delete]
     resources "/special_dates", SpecialDateController, only: [:index, :create, :delete]
     put "/status", StatusController, :update
     get "/status", StatusController, :show

@@ -25,26 +25,33 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     _WelcomePage(
       icon: Icons.favorite_rounded,
       color: Neo.pink,
-      title: 'Bienvenidos a lo nuestro',
+      title: 'Bienvenida a lo nuestro',
       lead: 'ALE & MAY',
-      body: 'Un espacio que es solo nuestro, para los dos.',
+      body:
+          'Un rinconcito que es solo para ti y para mí. '
+          'Quería hacer algo especial, un pequeño mundo privado donde '
+          'podamos ser nosotros mismos y guardar todo lo lindo que tenemos '
+          'sin que nadie más intervenga.',
     ),
     _WelcomePage(
       icon: Icons.all_inclusive_rounded,
       color: Neo.lilac,
       title: 'Nuestra conexión',
       body:
-          'Alma nació para guardar nuestra historia, nuestros recuerdos y fechas importantes y que aunque estemoes'
-          'lejos. Aquí guardamos lo que somoss, nuestros recuerdos fotos y videos.'
-          'y todo los que pensamos dia a dia, para que nunca se pierda.',
+          'Hice Alma para guardar nuestra historia, las fechas que importan '
+          'y para sentirnos cerquita aunque a veces estemos lejos. '
+          'Mi amor hacia ti es único, y el gran privilegio que me diste '
+          'es algo que nunca voy a olvidar. Aquí cuidaremos lo que somos.',
     ),
     _WelcomePage(
       icon: Icons.auto_awesome_rounded,
       color: Neo.mint,
       title: 'Esto recién empieza',
       body:
-          'Nuestro recuerdo se va a mantener en mi laptop, tenemos 280 GB para guardar todo lo que queramos para que'
-          'nuestros recuerdos nunca se pierdan.',
+          'Todo esto va a estar súper seguro en mi laptop. Tenemos 280 GB '
+          'libres solo para nosotros, para llenarlos con nuestras fotos y locuras. '
+          'Y esos 280 pueden extenderse a más, pero todo con calma... '
+          'tenemos mucho tiempo para seguir creando recuerdos juntos.',
     ),
   ];
 

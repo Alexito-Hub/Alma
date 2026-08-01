@@ -23,6 +23,8 @@ defmodule Alma.Application do
          ]
        ]},
       Alma.Media.Storage.child_spec(),
+      # One-shot: make sure Mongo has the indexes our hot queries need.
+      {Task, &Alma.MongoIndexes.ensure/0},
       AlmaWeb.Endpoint
     ]
 

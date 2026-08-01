@@ -5,6 +5,7 @@ import '../../../core/theme/neo.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/sync/sync_prefs.dart';
 import '../auth/profile_screen.dart';
+import 'server_status_screen.dart';
 
 /// Top-level "Ajustes" tab: account and sync — the settings that used to be
 /// scattered across Profile and the Create sheet.
@@ -89,6 +90,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   await SyncPrefs.setWifiOnly(v);
                   if (mounted) setState(() => _wifiOnly = v);
                 },
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            const _SectionTitle('Servidor'),
+            const SizedBox(height: 10),
+            _NeoTile(
+              icon: Icons.dns_rounded,
+              color: Neo.sky,
+              title: 'Estado del servidor',
+              subtitle: 'Conexión, recuerdos guardados y espacio libre',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ServerStatusScreen()),
               ),
             ),
             const SizedBox(height: 32),

@@ -21,9 +21,50 @@ class NoteRepository {
   Isar get _isar => IsarService.instance.db;
 
   Stream<List<NoteLocal>> watchAll() {
-    return _isar.noteLocals.where().sortByCreatedAtDesc().watch(
-      fireImmediately: true,
-    );
+    // Tombstones (pending remote delete) stay hidden.
+    return _isar.noteLocals
+        .filter()
+        .not()
+        .syncStatusEqualTo('deleted')
+        .sortByCreatedAtDesc()
+        .watch(fireImmediately: true);
+  }
+
+  /// Text-only edit (body + mood + link). A never-synced entry stays
+  /// 'pending' (its creation payload will carry the new text); a synced one is
+  /// flagged 'edited' so the sync worker PUTs the change.
+  Future<void> updateEntry({
+    required int isarId,
+    required String body,
+    String? mood,
+    String? link,
+  }) async {
+    await _isar.writeTxn(() async {
+      final n = await _isar.noteLocals.get(isarId);
+      if (n == null) return;
+      n
+        ..body = body
+        ..mood = mood
+        ..link = link
+        ..syncStatus = n.remoteId == null ? 'pending' : 'edited';
+      await _isar.noteLocals.put(n);
+    });
+  }
+
+  /// Never-synced entries vanish outright; synced ones keep a hidden
+  /// tombstone until the remote DELETE is confirmed (mirrors special dates) so
+  /// hydration can't resurrect them.
+  Future<void> delete(int isarId) async {
+    await _isar.writeTxn(() async {
+      final n = await _isar.noteLocals.get(isarId);
+      if (n == null) return;
+      if (n.remoteId == null) {
+        await _isar.noteLocals.delete(isarId);
+      } else {
+        n.syncStatus = 'deleted';
+        await _isar.noteLocals.put(n);
+      }
+    });
   }
 
   /// Create a diary entry. [createdAt] lets the calendar attach an entry to a

@@ -28,4 +28,18 @@ defmodule AlmaWeb.PostController do
       p -> json(conn, %{post: p})
     end
   end
+
+  def update(conn, %{"id" => id} = params) do
+    case Posts.update(conn.assigns.current_user, id, params) do
+      {:ok, post} -> json(conn, %{post: post})
+      {:error, _} -> conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
+
+  def delete(conn, %{"id" => id}) do
+    case Posts.delete(conn.assigns.current_user, id) do
+      :ok -> json(conn, %{ok: true})
+      {:error, _} -> conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
 end

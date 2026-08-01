@@ -45,6 +45,50 @@ defmodule AlmaWeb.CoupleSettingsController do
     end
   end
 
+  # ── Private-feed PIN (couple-shared, stored as a Bcrypt hash) ─────────────
+
+  def pin_status(conn, _params) do
+    json(conn, %{set: pin_hash(conn) != nil})
+  end
+
+  def set_pin(conn, %{"pin" => pin}) when is_binary(pin) do
+    user = conn.assigns.current_user
+
+    cond do
+      user["couple_id"] == nil ->
+        conn |> put_status(:bad_request) |> json(%{error: "not_linked"})
+
+      String.length(pin) < 4 ->
+        conn |> put_status(:bad_request) |> json(%{error: "pin_too_short"})
+
+      true ->
+        MongoClient.update(@coll, %{"couple_id" => user["couple_id"]}, %{
+          "couple_id" => user["couple_id"],
+          "pin_hash" => Bcrypt.hash_pwd_salt(pin)
+        })
+
+        json(conn, %{ok: true})
+    end
+  end
+
+  def verify_pin(conn, %{"pin" => pin}) when is_binary(pin) do
+    hash = pin_hash(conn)
+    json(conn, %{ok: is_binary(hash) and Bcrypt.verify_pass(pin, hash)})
+  end
+
+  defp pin_hash(conn) do
+    case conn.assigns.current_user["couple_id"] do
+      nil ->
+        nil
+
+      cid ->
+        case MongoClient.find_one(@coll, %{"couple_id" => cid}) do
+          nil -> nil
+          doc -> doc["pin_hash"]
+        end
+    end
+  end
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/neo.dart';
+import '../../../data/local/user_cache.dart';
 import '../../../data/local/welcome_storage.dart';
+import '../../../data/remote/token_storage.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/sync/hydrator.dart';
 import '../onboarding/welcome_screen.dart';
@@ -46,10 +48,18 @@ class _AuthGateState extends ConsumerState<AuthGate> {
       final couple = result.me.coupleId;
       if (couple != null && couple.isNotEmpty) {
         // Fire-and-forget: don't block UI on the hydration network calls.
-        unawaited(Hydrator.instance.hydrateAll(coupleId: couple));
+        unawaited(
+          Hydrator.instance.hydrateAll(
+            coupleId: couple,
+            selfUserId: result.me.id,
+            partnerName: result.partner?.prettyName,
+          ),
+        );
         unawaited(
           Hydrator.instance.subscribeToLiveUpdates(
             couple,
+            selfUserId: result.me.id,
+            partnerName: result.partner?.prettyName,
             onPartnerUpdated: (payload) async {
               // Cheapest path: re-fetch /me which already includes the partner.
               final refreshed = await ref.read(authRepositoryProvider).me();
@@ -62,7 +72,16 @@ class _AuthGateState extends ConsumerState<AuthGate> {
         );
       }
     } catch (_) {
-      // No session — login screen will appear.
+      // Network/server down. If we still hold a token + snapshot, restore the
+      // session offline so the couple's local data stays reachable; whatever
+      // gets created meanwhile queues up and syncs when the server is back.
+      final token = await TokenStorage.read();
+      final cached = token == null ? null : await UserCache.read();
+      if (cached != null) {
+        ref.read(currentUserProvider.notifier).state = cached.me;
+        ref.read(partnerUserProvider.notifier).state = cached.partner;
+      }
+      // Otherwise: no session — login screen will appear.
     }
   }
 

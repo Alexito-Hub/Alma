@@ -10,19 +10,76 @@ final postRepositoryProvider = Provider<PostRepository>(
   (_) => PostRepository(),
 );
 
-/// Live feed posts, newest first. See [notesProvider] — the stream lives in
-/// the provider, not in `build`, so it is created once and auto-disposed.
+/// Live feed posts, newest first — private posts excluded. See
+/// [notesProvider] — the stream lives in the provider, not in `build`, so it
+/// is created once and auto-disposed.
 final postsProvider = StreamProvider.autoDispose<List<PostLocal>>(
   (ref) => ref.watch(postRepositoryProvider).watchAll(),
+);
+
+/// The PIN-gated private feed (private posts only).
+final privatePostsProvider = StreamProvider.autoDispose<List<PostLocal>>(
+  (ref) => ref.watch(postRepositoryProvider).watchPrivate(),
 );
 
 class PostRepository {
   Isar get _isar => IsarService.instance.db;
 
   Stream<List<PostLocal>> watchAll() {
-    return _isar.postLocals.where().sortByCreatedAtDesc().watch(
-      fireImmediately: true,
-    );
+    // Tombstones (pending remote delete) and private posts stay hidden.
+    return _isar.postLocals
+        .filter()
+        .not()
+        .syncStatusEqualTo('deleted')
+        .isPrivateEqualTo(false)
+        .sortByCreatedAtDesc()
+        .watch(fireImmediately: true);
+  }
+
+  Stream<List<PostLocal>> watchPrivate() {
+    return _isar.postLocals
+        .filter()
+        .not()
+        .syncStatusEqualTo('deleted')
+        .isPrivateEqualTo(true)
+        .sortByCreatedAtDesc()
+        .watch(fireImmediately: true);
+  }
+
+  /// Text-only edit (title + description + tags); media is immutable. A
+  /// never-synced post stays 'pending'; a synced one is flagged 'edited' for
+  /// the sync worker to PUT.
+  Future<void> update({
+    required int isarId,
+    required String title,
+    required String description,
+    required List<String> tags,
+  }) async {
+    await _isar.writeTxn(() async {
+      final p = await _isar.postLocals.get(isarId);
+      if (p == null) return;
+      p
+        ..title = title
+        ..description = description
+        ..tags = tags
+        ..syncStatus = p.remoteId == null ? 'pending' : 'edited';
+      await _isar.postLocals.put(p);
+    });
+  }
+
+  /// Never-synced posts vanish outright; synced ones keep a hidden tombstone
+  /// until the remote DELETE is confirmed.
+  Future<void> delete(int isarId) async {
+    await _isar.writeTxn(() async {
+      final p = await _isar.postLocals.get(isarId);
+      if (p == null) return;
+      if (p.remoteId == null) {
+        await _isar.postLocals.delete(isarId);
+      } else {
+        p.syncStatus = 'deleted';
+        await _isar.postLocals.put(p);
+      }
+    });
   }
 
   Future<void> create({
@@ -31,6 +88,7 @@ class PostRepository {
     required String authorId,
     required List<String> tags,
     required List<File> media,
+    bool private = false,
   }) async {
     // Compress synchronously so the file we save to disk is the one
     // the sync worker will eventually upload.
@@ -51,6 +109,7 @@ class PostRepository {
       ..authorId = authorId
       ..tags = tags
       ..localMediaPaths = compressed
+      ..isPrivate = private
       ..createdAt = DateTime.now()
       ..syncStatus = 'pending';
 

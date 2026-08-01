@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Neo-brutalist surface: cream fill, hard black stroke, small radius. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FCEFDA" />
+    <stroke android:width="3dp" android:color="#141210" />
+    <corners android:radius="14dp" />
+</shape>
