@@ -29,6 +29,13 @@ class PostLocal {
   @Index()
   bool isPrivate = false;
 
+  /// Where the moment happened (optional). [placeLabel] is what the couple
+  /// actually reads — either the reverse-geocoded street/venue or a name they
+  /// typed themselves ("Cine del centro").
+  double? latitude;
+  double? longitude;
+  String? placeLabel;
+
   int retryCount = 0;
   String? lastError;
 }

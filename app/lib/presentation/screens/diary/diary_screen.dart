@@ -7,12 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/config/env.dart';
 import '../../../core/theme/neo.dart';
 import '../../../data/device/media_tools.dart';
+import '../../../data/device/voice_recorder.dart';
 import '../../../data/local/diary_prefs.dart';
 import '../../../data/local/isar/note_local.dart';
 import '../../../data/local/isar/special_date_local.dart';
@@ -59,6 +61,7 @@ class EntryDraft {
     this.link,
     this.imagePaths = const [],
     this.videoPath,
+    this.audioPath,
     this.geo,
   });
   final String body;
@@ -66,6 +69,7 @@ class EntryDraft {
   final String? link;
   final List<String> imagePaths;
   final String? videoPath;
+  final String? audioPath;
   final GeoTag? geo;
 }
 
@@ -127,6 +131,7 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
             link: d.link,
             imagePaths: d.imagePaths,
             videoPath: d.videoPath,
+            audioPath: d.audioPath,
             latitude: d.geo?.latitude,
             longitude: d.geo?.longitude,
             placeLabel: d.geo?.label,
@@ -323,6 +328,10 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
                   ],
                   for (final s in daySpecials)
                     Padding(
+                      // Keyed by row id: without it Flutter matches children by
+                      // position, so deleting one leaves the next card wearing
+                      // the previous one's state.
+                      key: ValueKey('special-${s.isarId}'),
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _SpecialDateCard(
                         special: s,
@@ -363,6 +372,9 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
                   else
                     for (final n in dayEntries)
                       Padding(
+                        // See the note above: keys keep each entry's photos and
+                        // video bound to the entry, not to its slot in the list.
+                        key: ValueKey('note-${n.isarId}'),
                         padding: const EdgeInsets.only(bottom: 12),
                         child: _MomentoCard(
                           note: n,
@@ -754,15 +766,37 @@ class _MomentoCard extends StatelessWidget {
             ),
           ),
           if (note.imagePaths.isNotEmpty)
-            _PhotoCarousel(paths: note.imagePaths)
+            _PhotoCarousel(
+              key: ValueKey('photos-${note.isarId}'),
+              paths: note.imagePaths,
+            )
           else if (note.remoteImageUrls.isNotEmpty)
             _PhotoCarousel(
+              key: ValueKey('photos-remote-${note.isarId}'),
               paths: note.remoteImageUrls.map(_withBaseUrl).toList(),
             ),
           if (note.videoPath != null)
-            _VideoTile(path: note.videoPath!)
+            _VideoTile(
+              key: ValueKey('video-${note.isarId}'),
+              path: note.videoPath!,
+            )
           else if (note.remoteVideoUrl != null)
-            _VideoTile(path: _withBaseUrl(note.remoteVideoUrl!), remote: true),
+            _VideoTile(
+              key: ValueKey('video-remote-${note.isarId}'),
+              path: _withBaseUrl(note.remoteVideoUrl!),
+              remote: true,
+            ),
+          if (note.audioPath != null)
+            _AudioTile(
+              key: ValueKey('audio-${note.isarId}'),
+              src: note.audioPath!,
+            )
+          else if (note.remoteAudioUrl != null)
+            _AudioTile(
+              key: ValueKey('audio-remote-${note.isarId}'),
+              src: _withBaseUrl(note.remoteAudioUrl!),
+              remote: true,
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: SelectableText(
@@ -898,7 +932,7 @@ String _withBaseUrl(String u) =>
     u.startsWith('http') ? u : '${Env.apiBaseUrl}$u';
 
 class _PhotoCarousel extends StatefulWidget {
-  const _PhotoCarousel({required this.paths});
+  const _PhotoCarousel({super.key, required this.paths});
   final List<String> paths;
 
   @override
@@ -977,8 +1011,136 @@ class _PhotoCarouselState extends State<_PhotoCarousel> {
 }
 
 /// Short video: shows a tap-to-play cover, then plays inline (no autoplay).
+/// Voice note playback: a neo bar with play/pause and a progress line.
+class _AudioTile extends StatefulWidget {
+  const _AudioTile({super.key, required this.src, this.remote = false});
+  final String src;
+  final bool remote;
+
+  @override
+  State<_AudioTile> createState() => _AudioTileState();
+}
+
+class _AudioTileState extends State<_AudioTile> {
+  final _player = AudioPlayer();
+  bool _loaded = false;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      if (!_loaded) {
+        // Loading on first tap keeps a screen full of entries cheap.
+        if (widget.remote) {
+          await _player.setUrl(widget.src);
+        } else {
+          await _player.setFilePath(widget.src);
+        }
+        _loaded = true;
+      }
+      if (_player.playing) {
+        await _player.pause();
+      } else {
+        if (_player.processingState == ProcessingState.completed) {
+          await _player.seek(Duration.zero);
+        }
+        unawaited(_player.play());
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo reproducir la nota de voz')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final txt = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: const BoxDecoration(
+        color: Neo.coral,
+        border: Border(
+          bottom: BorderSide(color: Neo.ink, width: Neo.strokeThin),
+        ),
+      ),
+      child: StreamBuilder<Duration>(
+        stream: _player.positionStream,
+        builder: (context, snap) {
+          final total = _player.duration ?? Duration.zero;
+          final pos = snap.data ?? Duration.zero;
+          final progress = (total.inMilliseconds == 0)
+              ? 0.0
+              : (pos.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0);
+
+          return Row(
+            children: [
+              GestureDetector(
+                onTap: _toggle,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Neo.white,
+                    border: Neo.borderThin,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _player.playing
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 22,
+                    color: Neo.ink,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Nota de voz', style: txt.labelSmall),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 6,
+                        backgroundColor: Neo.white,
+                        valueColor: const AlwaysStoppedAnimation(Neo.ink),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                _ComposerState._clock(total == Duration.zero ? pos : total),
+                style: txt.labelSmall,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _VideoTile extends StatefulWidget {
-  const _VideoTile({required this.path, this.remote = false});
+  const _VideoTile({super.key, required this.path, this.remote = false});
   final String path;
   final bool remote;
 
@@ -1038,9 +1200,18 @@ class _VideoTileState extends State<_VideoTile> {
             fit: StackFit.expand,
             children: [
               if (_ready && c != null)
-                VideoPlayer(c)
+                // Cover-fit inside the tile: a portrait clip letterboxed
+                // against black was reading as a rendering bug.
+                FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: c.value.size.width,
+                    height: c.value.size.height,
+                    child: VideoPlayer(c),
+                  ),
+                )
               else
-                const ColoredBox(color: Neo.ink),
+                const ColoredBox(color: Neo.lilac),
               if (!_ready || (c != null && !c.value.isPlaying))
                 Center(
                   child: Container(
@@ -1386,11 +1557,56 @@ class _ComposerState extends State<_Composer> {
   GeoTag? _geo;
   bool _locating = false;
 
+  // Voice note: hold the mic to record, release to keep the take.
+  final _recorder = VoiceRecorder();
+  String? _audioPath;
+  bool _recording = false;
+  Duration _elapsed = Duration.zero;
+  Timer? _ticker;
+
   @override
   void dispose() {
+    _ticker?.cancel();
+    _recorder.dispose();
     _body.dispose();
     _link.dispose();
     super.dispose();
+  }
+
+  Future<void> _startRecording() async {
+    if (_recording) return;
+    final path = await _recorder.start();
+    if (path == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Necesito permiso del micrófono')),
+      );
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _recording = true;
+      _elapsed = Duration.zero;
+    });
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
+    });
+  }
+
+  Future<void> _stopRecording({bool keep = true}) async {
+    if (!_recording) return;
+    _ticker?.cancel();
+    final path = keep ? await _recorder.stop() : null;
+    if (!keep) await _recorder.cancel();
+    if (!mounted) return;
+    setState(() {
+      _recording = false;
+      // Takes under a second are almost always an accidental tap.
+      if (keep && path != null && _elapsed.inMilliseconds >= 900) {
+        _audioPath = path;
+      }
+      _elapsed = Duration.zero;
+    });
   }
 
   Future<void> _pickPhotos() async {
@@ -1428,6 +1644,7 @@ class _ComposerState extends State<_Composer> {
         link: _link.text.trim().isEmpty ? null : _link.text.trim(),
         imagePaths: List.of(_photos),
         videoPath: _videoPath,
+        audioPath: _audioPath,
         geo: _geo,
       ),
     );
@@ -1540,6 +1757,13 @@ class _ComposerState extends State<_Composer> {
                   Neo.sky,
                   () => setState(() => _videoPath = null),
                 ),
+              if (_audioPath != null)
+                _attachmentChip(
+                  Icons.mic_rounded,
+                  'Nota de voz',
+                  Neo.coral,
+                  () => setState(() => _audioPath = null),
+                ),
               if (_geo != null)
                 _attachmentChip(
                   Icons.place_rounded,
@@ -1551,6 +1775,7 @@ class _ComposerState extends State<_Composer> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _attachBtn(
                     Icons.add_photo_alternate_outlined,
@@ -1562,6 +1787,43 @@ class _ComposerState extends State<_Composer> {
                     Icons.place_rounded,
                     _locating ? '…' : 'Ubicación',
                     _addLocation,
+                  ),
+                  // Hold to record, release to keep — as in WhatsApp.
+                  GestureDetector(
+                    onLongPressStart: (_) => _startRecording(),
+                    onLongPressEnd: (_) => _stopRecording(),
+                    onLongPressCancel: () => _stopRecording(keep: false),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _recording ? Neo.coral : Neo.white,
+                        border: Neo.border,
+                        borderRadius: Neo.cornerSm,
+                        boxShadow: _recording
+                            ? const []
+                            : Neo.shadow(Neo.shadowSm),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _recording ? Icons.stop_rounded : Icons.mic_rounded,
+                            size: 16,
+                            color: Neo.ink,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            _recording
+                                ? _clock(_elapsed)
+                                : 'Mantén para grabar',
+                            style: txt.labelSmall,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1578,6 +1840,12 @@ class _ComposerState extends State<_Composer> {
         ),
       ),
     );
+  }
+
+  static String _clock(Duration d) {
+    final m = d.inMinutes.toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   Widget _attachBtn(IconData icon, String label, VoidCallback onTap) {

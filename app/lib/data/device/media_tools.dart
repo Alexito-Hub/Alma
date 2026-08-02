@@ -15,6 +15,34 @@ class GeoTag {
 class MediaTools {
   MediaTools._();
 
+  /// True when a stored media path is a video rather than a photo.
+  static bool isVideo(String path) {
+    final p = path.toLowerCase();
+    return p.endsWith('.mp4') ||
+        p.endsWith('.mov') ||
+        p.endsWith('.m4v') ||
+        p.endsWith('.3gp') ||
+        p.endsWith('.mkv') ||
+        p.endsWith('.avi') ||
+        p.endsWith('.webm');
+  }
+
+  /// Resolve a typed place ("Parque Kennedy, Lima") into coordinates, so a
+  /// moment can be pinned somewhere other than where the phone is standing.
+  /// Returns null when the address can't be found.
+  static Future<GeoTag?> geocodePlace(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return null;
+    try {
+      final results = await locationFromAddress(q);
+      if (results.isEmpty) return null;
+      final loc = results.first;
+      return GeoTag(latitude: loc.latitude, longitude: loc.longitude, label: q);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Opens the crop UI for [path]. [square] locks a 1:1 ratio (used for
   /// avatars). Returns the cropped file path, or the original if cancelled.
   static Future<String> cropImage(String path, {bool square = false}) async {

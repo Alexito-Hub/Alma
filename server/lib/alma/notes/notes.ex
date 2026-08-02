@@ -25,6 +25,7 @@ defmodule Alma.Notes do
           "link" => attrs["link"],
           "image_urls" => attrs["image_urls"] || [],
           "video_url" => attrs["video_url"],
+          "audio_url" => attrs["audio_url"],
           "latitude" => attrs["latitude"],
           "longitude" => attrs["longitude"],
           "place_label" => attrs["place_label"],

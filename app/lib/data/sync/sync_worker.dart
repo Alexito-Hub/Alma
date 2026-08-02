@@ -18,7 +18,6 @@ import '../local/isar_service.dart';
 import '../local/user_cache.dart';
 import '../remote/api_client.dart';
 import '../remote/endpoints.dart';
-import '../remote/health_api.dart';
 import '../remote/token_storage.dart';
 import 'sync_prefs.dart';
 
@@ -82,9 +81,8 @@ Future<void> _runSync() async {
   await _syncSpecialDates(isar, dio);
 
   // With the app closed there is no WebSocket, so this tick is what surfaces
-  // the partner's activity and keeps the home-screen widgets current.
+  // the partner's activity and keeps the home-screen widget current.
   await _notifyPartnerActivity(dio);
-  await _refreshServerWidget();
 }
 
 /// Poll for partner activity and raise a notification for anything new.
@@ -175,11 +173,6 @@ Future<bool> _isNewSince(String kind, String stamp) async {
   if (seen == stamp) return false;
   await SyncPrefs.setMarker(kind, stamp);
   return seen != null;
-}
-
-Future<void> _refreshServerWidget() async {
-  final health = await HealthApi.fetch();
-  await HomeWidgets.pushServer(status: health.status, detail: health.headline);
 }
 
 /// Foreground push of everything pending. Called from the UI right after the
@@ -293,6 +286,15 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
         });
       }
     }
+    if (n.remoteAudioUrl == null && n.audioPath != null) {
+      final url = await _uploadFile(dio, n.audioPath!);
+      if (url != null) {
+        await isar.writeTxn(() async {
+          n.remoteAudioUrl = url;
+          await isar.noteLocals.put(n);
+        });
+      }
+    }
 
     payload.add({
       'client_id': n.isarId.toString(),
@@ -306,6 +308,7 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
       'link': n.link,
       'image_urls': n.remoteImageUrls,
       'video_url': n.remoteVideoUrl,
+      'audio_url': n.remoteAudioUrl,
       'latitude': n.latitude,
       'longitude': n.longitude,
       'place_label': n.placeLabel,
@@ -497,10 +500,22 @@ Future<void> _syncStatus(Isar isar, Dio dio) async {
       .syncStatusEqualTo('pending')
       .findAll();
   for (final s in pending) {
+    // Upload the snapshot once; the URL is kept so a retry never re-uploads.
+    if (s.remoteImageUrl == null && s.imagePath != null) {
+      final url = await _uploadFile(dio, s.imagePath!);
+      if (url != null) {
+        await isar.writeTxn(() async {
+          s.remoteImageUrl = url;
+          await isar.statusLocals.put(s);
+        });
+      }
+    }
+
     final res = await dio.put(
       Endpoints.status,
       data: {
         'text': s.text,
+        'image_url': s.remoteImageUrl,
         'updated_at': s.updatedAt.toUtc().toIso8601String(),
       },
     );
@@ -551,6 +566,9 @@ Future<void> _syncPosts(Isar isar, Dio dio) async {
           'tags': p.tags,
           'media_urls': remoteUrls,
           'private': p.isPrivate,
+          'latitude': p.latitude,
+          'longitude': p.longitude,
+          'place_label': p.placeLabel,
           'created_at': p.createdAt.toUtc().toIso8601String(),
         },
       );

@@ -42,33 +42,48 @@ const PostLocalSchema = CollectionSchema(
       name: r'lastError',
       type: IsarType.string,
     ),
-    r'localMediaPaths': PropertySchema(
+    r'latitude': PropertySchema(
       id: 5,
+      name: r'latitude',
+      type: IsarType.double,
+    ),
+    r'localMediaPaths': PropertySchema(
+      id: 6,
       name: r'localMediaPaths',
       type: IsarType.stringList,
     ),
+    r'longitude': PropertySchema(
+      id: 7,
+      name: r'longitude',
+      type: IsarType.double,
+    ),
+    r'placeLabel': PropertySchema(
+      id: 8,
+      name: r'placeLabel',
+      type: IsarType.string,
+    ),
     r'remoteId': PropertySchema(
-      id: 6,
+      id: 9,
       name: r'remoteId',
       type: IsarType.string,
     ),
     r'remoteMediaUrls': PropertySchema(
-      id: 7,
+      id: 10,
       name: r'remoteMediaUrls',
       type: IsarType.stringList,
     ),
     r'retryCount': PropertySchema(
-      id: 8,
+      id: 11,
       name: r'retryCount',
       type: IsarType.long,
     ),
     r'syncStatus': PropertySchema(
-      id: 9,
+      id: 12,
       name: r'syncStatus',
       type: IsarType.string,
     ),
-    r'tags': PropertySchema(id: 10, name: r'tags', type: IsarType.stringList),
-    r'title': PropertySchema(id: 11, name: r'title', type: IsarType.string),
+    r'tags': PropertySchema(id: 13, name: r'tags', type: IsarType.stringList),
+    r'title': PropertySchema(id: 14, name: r'title', type: IsarType.string),
   },
 
   estimateSize: _postLocalEstimateSize,
@@ -161,6 +176,12 @@ int _postLocalEstimateSize(
     }
   }
   {
+    final value = object.placeLabel;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
     final value = object.remoteId;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
@@ -196,13 +217,16 @@ void _postLocalSerialize(
   writer.writeString(offsets[2], object.description);
   writer.writeBool(offsets[3], object.isPrivate);
   writer.writeString(offsets[4], object.lastError);
-  writer.writeStringList(offsets[5], object.localMediaPaths);
-  writer.writeString(offsets[6], object.remoteId);
-  writer.writeStringList(offsets[7], object.remoteMediaUrls);
-  writer.writeLong(offsets[8], object.retryCount);
-  writer.writeString(offsets[9], object.syncStatus);
-  writer.writeStringList(offsets[10], object.tags);
-  writer.writeString(offsets[11], object.title);
+  writer.writeDouble(offsets[5], object.latitude);
+  writer.writeStringList(offsets[6], object.localMediaPaths);
+  writer.writeDouble(offsets[7], object.longitude);
+  writer.writeString(offsets[8], object.placeLabel);
+  writer.writeString(offsets[9], object.remoteId);
+  writer.writeStringList(offsets[10], object.remoteMediaUrls);
+  writer.writeLong(offsets[11], object.retryCount);
+  writer.writeString(offsets[12], object.syncStatus);
+  writer.writeStringList(offsets[13], object.tags);
+  writer.writeString(offsets[14], object.title);
 }
 
 PostLocal _postLocalDeserialize(
@@ -218,13 +242,16 @@ PostLocal _postLocalDeserialize(
   object.isPrivate = reader.readBool(offsets[3]);
   object.isarId = id;
   object.lastError = reader.readStringOrNull(offsets[4]);
-  object.localMediaPaths = reader.readStringList(offsets[5]) ?? [];
-  object.remoteId = reader.readStringOrNull(offsets[6]);
-  object.remoteMediaUrls = reader.readStringList(offsets[7]) ?? [];
-  object.retryCount = reader.readLong(offsets[8]);
-  object.syncStatus = reader.readString(offsets[9]);
-  object.tags = reader.readStringList(offsets[10]) ?? [];
-  object.title = reader.readString(offsets[11]);
+  object.latitude = reader.readDoubleOrNull(offsets[5]);
+  object.localMediaPaths = reader.readStringList(offsets[6]) ?? [];
+  object.longitude = reader.readDoubleOrNull(offsets[7]);
+  object.placeLabel = reader.readStringOrNull(offsets[8]);
+  object.remoteId = reader.readStringOrNull(offsets[9]);
+  object.remoteMediaUrls = reader.readStringList(offsets[10]) ?? [];
+  object.retryCount = reader.readLong(offsets[11]);
+  object.syncStatus = reader.readString(offsets[12]);
+  object.tags = reader.readStringList(offsets[13]) ?? [];
+  object.title = reader.readString(offsets[14]);
   return object;
 }
 
@@ -246,18 +273,24 @@ P _postLocalDeserializeProp<P>(
     case 4:
       return (reader.readStringOrNull(offset)) as P;
     case 5:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readDoubleOrNull(offset)) as P;
     case 6:
-      return (reader.readStringOrNull(offset)) as P;
-    case 7:
       return (reader.readStringList(offset) ?? []) as P;
+    case 7:
+      return (reader.readDoubleOrNull(offset)) as P;
     case 8:
-      return (reader.readLong(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 9:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 10:
       return (reader.readStringList(offset) ?? []) as P;
     case 11:
+      return (reader.readLong(offset)) as P;
+    case 12:
+      return (reader.readString(offset)) as P;
+    case 13:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 14:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -1253,6 +1286,97 @@ extension PostLocalQueryFilter
     });
   }
 
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> latitudeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'latitude'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  latitudeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'latitude'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> latitudeEqualTo(
+    double? value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'latitude',
+          value: value,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> latitudeGreaterThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'latitude',
+          value: value,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> latitudeLessThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'latitude',
+          value: value,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> latitudeBetween(
+    double? lower,
+    double? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'latitude',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
   QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
   localMediaPathsElementEqualTo(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
@@ -1449,6 +1573,262 @@ extension PostLocalQueryFilter
         includeLower,
         upper,
         includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> longitudeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'longitude'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  longitudeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'longitude'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> longitudeEqualTo(
+    double? value, {
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'longitude',
+          value: value,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  longitudeGreaterThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'longitude',
+          value: value,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> longitudeLessThan(
+    double? value, {
+    bool include = false,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'longitude',
+          value: value,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> longitudeBetween(
+    double? lower,
+    double? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    double epsilon = Query.epsilon,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'longitude',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+
+          epsilon: epsilon,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'placeLabel'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  placeLabelIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'placeLabel'),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'placeLabel',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  placeLabelGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'placeLabel',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'placeLabel',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'placeLabel',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  placeLabelStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'placeLabel',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'placeLabel',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'placeLabel',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition> placeLabelMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'placeLabel',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  placeLabelIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'placeLabel', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterFilterCondition>
+  placeLabelIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'placeLabel', value: ''),
       );
     });
   }
@@ -2435,6 +2815,42 @@ extension PostLocalQuerySortBy on QueryBuilder<PostLocal, PostLocal, QSortBy> {
     });
   }
 
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByLatitude() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'latitude', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByLatitudeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'latitude', Sort.desc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByLongitude() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'longitude', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByLongitudeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'longitude', Sort.desc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByPlaceLabel() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'placeLabel', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByPlaceLabelDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'placeLabel', Sort.desc);
+    });
+  }
+
   QueryBuilder<PostLocal, PostLocal, QAfterSortBy> sortByRemoteId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'remoteId', Sort.asc);
@@ -2558,6 +2974,42 @@ extension PostLocalQuerySortThenBy
     });
   }
 
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByLatitude() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'latitude', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByLatitudeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'latitude', Sort.desc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByLongitude() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'longitude', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByLongitudeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'longitude', Sort.desc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByPlaceLabel() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'placeLabel', Sort.asc);
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByPlaceLabelDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'placeLabel', Sort.desc);
+    });
+  }
+
   QueryBuilder<PostLocal, PostLocal, QAfterSortBy> thenByRemoteId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'remoteId', Sort.asc);
@@ -2645,9 +3097,29 @@ extension PostLocalQueryWhereDistinct
     });
   }
 
+  QueryBuilder<PostLocal, PostLocal, QDistinct> distinctByLatitude() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'latitude');
+    });
+  }
+
   QueryBuilder<PostLocal, PostLocal, QDistinct> distinctByLocalMediaPaths() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'localMediaPaths');
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QDistinct> distinctByLongitude() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'longitude');
+    });
+  }
+
+  QueryBuilder<PostLocal, PostLocal, QDistinct> distinctByPlaceLabel({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'placeLabel', caseSensitive: caseSensitive);
     });
   }
 
@@ -2732,10 +3204,28 @@ extension PostLocalQueryProperty
     });
   }
 
+  QueryBuilder<PostLocal, double?, QQueryOperations> latitudeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'latitude');
+    });
+  }
+
   QueryBuilder<PostLocal, List<String>, QQueryOperations>
   localMediaPathsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'localMediaPaths');
+    });
+  }
+
+  QueryBuilder<PostLocal, double?, QQueryOperations> longitudeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'longitude');
+    });
+  }
+
+  QueryBuilder<PostLocal, String?, QQueryOperations> placeLabelProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'placeLabel');
     });
   }
 

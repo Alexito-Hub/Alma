@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:isar_community/isar.dart';
 
+import '../device/media_tools.dart';
 import '../local/isar/post_local.dart';
 import '../local/isar_service.dart';
 import '../sync/media_compressor.dart';
@@ -89,15 +90,15 @@ class PostRepository {
     required List<String> tags,
     required List<File> media,
     bool private = false,
+    double? latitude,
+    double? longitude,
+    String? placeLabel,
   }) async {
     // Compress synchronously so the file we save to disk is the one
     // the sync worker will eventually upload.
     final compressed = <String>[];
     for (final f in media) {
-      final isVideo =
-          f.path.toLowerCase().endsWith('.mp4') ||
-          f.path.toLowerCase().endsWith('.mov');
-      final out = isVideo
+      final out = MediaTools.isVideo(f.path)
           ? await MediaCompressor.compressVideo(f)
           : await MediaCompressor.compressImage(f);
       compressed.add(out.path);
@@ -110,6 +111,9 @@ class PostRepository {
       ..tags = tags
       ..localMediaPaths = compressed
       ..isPrivate = private
+      ..latitude = latitude
+      ..longitude = longitude
+      ..placeLabel = placeLabel
       ..createdAt = DateTime.now()
       ..syncStatus = 'pending';
 

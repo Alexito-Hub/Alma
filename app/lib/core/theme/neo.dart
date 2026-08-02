@@ -104,12 +104,36 @@ class _NeoBoxState extends State<NeoBox> {
     final pressed = _down && tappable;
     final off = widget.shadowOffset;
 
+    final outer = BorderRadius.circular(widget.radius);
+    // The stroke is painted inside the outer edge, so content has to be inset
+    // by it and clipped to the *inner* curve. Clipping to the outer shape
+    // instead lets a full-bleed child — a coloured header, a photo — paint
+    // over the corner and stick out past the black border as a little point.
+    final innerRadius = (widget.radius - widget.borderWidth).clamp(
+      0.0,
+      widget.radius,
+    );
+
+    Widget content = widget.child;
+    if (widget.padding != null) {
+      content = Padding(padding: widget.padding!, child: content);
+    }
+    content = Padding(
+      padding: EdgeInsets.all(widget.borderWidth),
+      child: widget.clip
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(innerRadius),
+              clipBehavior: Clip.antiAliasWithSaveLayer,
+              child: content,
+            )
+          : content,
+    );
+
     final box = AnimatedContainer(
       duration: const Duration(milliseconds: 70),
       curve: Curves.easeOut,
       width: widget.width,
       margin: widget.margin,
-      padding: widget.padding,
       transform: Matrix4.translationValues(
         pressed ? off.dx : 0,
         pressed ? off.dy : 0,
@@ -117,14 +141,25 @@ class _NeoBoxState extends State<NeoBox> {
       ),
       decoration: BoxDecoration(
         color: widget.color,
-        border: Border.all(color: Neo.ink, width: widget.borderWidth),
-        borderRadius: BorderRadius.circular(widget.radius),
+        borderRadius: outer,
         boxShadow: pressed ? const [] : Neo.shadow(off),
       ),
-      // antiAliasWithSaveLayer avoids the child colour bleeding ~1px past the
-      // rounded corners (the little "punta" over the black border).
-      clipBehavior: widget.clip ? Clip.antiAliasWithSaveLayer : Clip.none,
-      child: widget.child,
+      child: Stack(
+        children: [
+          content,
+          // Stroke last, so nothing can bleed across it.
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: outer,
+                  border: Border.all(color: Neo.ink, width: widget.borderWidth),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
 
     if (!tappable) return box;
@@ -470,12 +505,16 @@ class NeoChip extends StatelessWidget {
             Icon(icon, size: 15, color: Neo.ink),
             const SizedBox(width: 6),
           ],
-          Text(
-            label,
-            style: const TextStyle(
-              color: Neo.ink,
-              fontWeight: FontWeight.w800,
-              fontSize: 13,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Neo.ink,
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+              ),
             ),
           ),
         ],

@@ -93,6 +93,8 @@ class DashboardScreen extends ConsumerWidget {
                         text: partnerStatus?.text,
                         updatedAt: partnerStatus?.updatedAt,
                         partnerLabel: (partner?.prettyName ?? 'pareja'),
+                        imagePath: partnerStatus?.imagePath,
+                        imageUrl: partnerStatus?.remoteImageUrl,
                       ),
                       if (myStatus != null && myStatus.text.isNotEmpty) ...[
                         const SizedBox(height: 10),

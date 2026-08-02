@@ -1,25 +1,29 @@
 defmodule Alma.Statuses do
   @moduledoc """
-  Each user has a single, mutable "current status". We store it on the user
-  doc itself (`current_status`, `status_updated_at`) — no separate collection
-  needed since we only ever read the latest value.
+  Each user has a single, mutable "current status" — a short line about how
+  they feel, optionally with a snapshot taken at that moment. We store it on
+  the user doc itself (`current_status`, `current_status_image`,
+  `status_updated_at`); no separate collection is needed since we only ever
+  read the latest value.
 
   Updates broadcast via PubSub to the couple's channel.
   """
   alias Alma.Accounts
 
-  def update(user, text) do
+  def update(user, text, image_url \\ nil) do
     now = DateTime.utc_now()
 
     :ok =
       Accounts.update_user(user["_id"], %{
         "current_status" => text,
+        "current_status_image" => image_url,
         "status_updated_at" => now
       })
 
     payload = %{
       "author_id" => user["_id"],
       "text" => text,
+      "image_url" => image_url,
       "updated_at" => DateTime.to_iso8601(now)
     }
 
@@ -57,6 +61,7 @@ defmodule Alma.Statuses do
     %{
       "author_id" => user["_id"],
       "text" => user["current_status"] || "",
+      "image_url" => user["current_status_image"],
       "updated_at" =>
         (user["status_updated_at"] || DateTime.utc_now()) |> DateTime.to_iso8601()
     }

@@ -21,6 +21,10 @@ defmodule Alma.Posts do
           "tags" => attrs["tags"] || [],
           # Private posts only surface in the app's PIN-gated view.
           "private" => attrs["private"] == true,
+          # Optional geotag: coordinates plus the label shown in the feed.
+          "latitude" => attrs["latitude"],
+          "longitude" => attrs["longitude"],
+          "place_label" => attrs["place_label"],
           "author_id" => author["_id"],
           "couple_id" => author["couple_id"],
           "created_at" => parse_dt(attrs["created_at"]),

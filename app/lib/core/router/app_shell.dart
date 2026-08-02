@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/device/home_widgets.dart';
 import '../../data/device/notifications.dart';
-import '../../data/remote/health_api.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/status_repository.dart';
 import '../../data/sync/hydrator.dart';
@@ -82,17 +81,12 @@ class _AppShellState extends ConsumerState<AppShell>
   Future<void> _refreshWidgets() async {
     final partner = ref.read(partnerUserProvider);
     final status = ref.read(partnerStatusProvider).valueOrNull;
-    if (status != null) {
-      await HomeWidgets.pushStatus(
-        author: partner?.prettyName,
-        text: status.text,
-        at: status.updatedAt,
-      );
-    }
-    final health = await HealthApi.fetch();
-    await HomeWidgets.pushServer(
-      status: health.status,
-      detail: health.headline,
+    if (status == null) return;
+    await HomeWidgets.pushStatus(
+      author: partner?.prettyName,
+      text: status.text,
+      photoPath: status.imagePath,
+      at: status.updatedAt,
     );
   }
 

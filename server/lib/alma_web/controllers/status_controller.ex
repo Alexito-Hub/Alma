@@ -2,8 +2,10 @@ defmodule AlmaWeb.StatusController do
   use Phoenix.Controller, formats: [:json]
   alias Alma.Statuses
 
-  def update(conn, %{"text" => text}) do
-    {:ok, payload} = Statuses.update(conn.assigns.current_user, text)
+  def update(conn, %{"text" => text} = params) do
+    {:ok, payload} =
+      Statuses.update(conn.assigns.current_user, text, params["image_url"])
+
     json(conn, %{status: payload})
   end
 

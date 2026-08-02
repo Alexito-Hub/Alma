@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/neo.dart';
-import '../../../data/device/home_widgets.dart';
 import '../../../data/remote/health_api.dart';
 
 /// "Estado del servidor" — a readable view of `GET /health`: whether Mongo
@@ -27,10 +26,6 @@ class _ServerStatusScreenState extends State<ServerStatusScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final health = await HealthApi.fetch();
-    await HomeWidgets.pushServer(
-      status: health.status,
-      detail: health.headline,
-    );
     if (!mounted) return;
     setState(() {
       _health = health;

@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/config/env.dart';
 import '../../../core/theme/neo.dart';
+import '../../../data/device/media_tools.dart';
 import '../../../data/local/isar/post_local.dart';
 import '../../../data/remote/pin_gate.dart';
 import '../../../data/repositories/auth_repository.dart';
@@ -339,6 +342,10 @@ class _PostList extends StatelessWidget {
         final p = posts[i];
         final mine = myId != null && p.authorId == myId;
         return Padding(
+          // Keyed by row id. Without it Flutter reuses each slot's state when
+          // the list changes, so deleting or editing a post leaves the media
+          // already loaded at that position showing on a different post.
+          key: ValueKey('post-${p.isarId}'),
           padding: const EdgeInsets.only(bottom: 16),
           child: GestureDetector(
             onTap: () => _openPost(context, p),
@@ -391,6 +398,7 @@ class _PostGrid extends StatelessWidget {
       itemBuilder: (_, i) {
         final p = media[i];
         return GestureDetector(
+          key: ValueKey('grid-${p.isarId}'),
           onTap: () => _openPost(context, p),
           child: Container(
             decoration: BoxDecoration(
@@ -407,29 +415,68 @@ class _PostGrid extends StatelessWidget {
   }
 }
 
+/// A post's media, resolved for display: local files while it is still queued
+/// for upload, remote URLs once synced.
+List<String> _postMediaSources(PostLocal post) =>
+    post.localMediaPaths.isNotEmpty
+    ? post.localMediaPaths
+    : post.remoteMediaUrls
+          .map((u) => u.startsWith('http') ? u : '${Env.apiBaseUrl}$u')
+          .toList();
+
+bool _isRemote(String src) => src.startsWith('http');
+
+/// One photo or video, sized by its parent.
+Widget _mediaTile(String src) {
+  if (MediaTools.isVideo(src)) {
+    return _FeedVideo(src: src, remote: _isRemote(src));
+  }
+  return ColoredBox(
+    color: Neo.white,
+    child: _isRemote(src)
+        ? CachedNetworkImage(
+            imageUrl: src,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            errorWidget: (_, _, _) =>
+                const Center(child: Icon(Icons.broken_image_outlined)),
+          )
+        : Image.file(
+            File(src),
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            errorBuilder: (_, _, _) =>
+                const Center(child: Icon(Icons.broken_image_outlined)),
+          ),
+  );
+}
+
 class _MediaThumb extends StatelessWidget {
   const _MediaThumb({required this.post});
   final PostLocal post;
 
   @override
   Widget build(BuildContext context) {
-    final hasLocal = post.localMediaPaths.isNotEmpty;
-    return Container(
-      color: Theme.of(context).colorScheme.surfaceContainerHigh,
-      child: hasLocal
-          ? Image.file(File(post.localMediaPaths.first), fit: BoxFit.cover)
-          : CachedNetworkImage(
-              imageUrl: '${Env.apiBaseUrl}${post.remoteMediaUrls.first}',
-              fit: BoxFit.cover,
-              errorWidget: (_, _, _) => const Icon(Icons.broken_image_outlined),
-            ),
-    );
+    final sources = _postMediaSources(post);
+    if (sources.isEmpty) return const ColoredBox(color: Neo.white);
+    final src = sources.first;
+    if (MediaTools.isVideo(src)) {
+      return const ColoredBox(
+        color: Neo.lilac,
+        child: Center(
+          child: Icon(Icons.videocam_rounded, color: Neo.ink, size: 26),
+        ),
+      );
+    }
+    return _mediaTile(src);
   }
 }
 
-/// Feed media that sizes itself to the photo's real aspect ratio. Wide shots
-/// show fully; tall (portrait) shots are clamped so a single photo can't take
-/// over the whole feed.
+/// Feed media that sizes itself to the first photo's real aspect ratio, and
+/// pages through everything the moment carries. Wide shots show fully; tall
+/// (portrait) shots are clamped so one photo can't take over the whole feed.
 class _AdaptiveMedia extends StatefulWidget {
   const _AdaptiveMedia({required this.post});
   final PostLocal post;
@@ -439,21 +486,47 @@ class _AdaptiveMedia extends StatefulWidget {
 }
 
 class _AdaptiveMediaState extends State<_AdaptiveMedia> {
-  late final ImageProvider _provider;
+  final _pager = PageController();
+  List<String> _sources = const [];
   ImageStream? _stream;
   ImageStreamListener? _listener;
   double? _ratio;
+  int _page = 0;
 
   @override
   void initState() {
     super.initState();
-    final p = widget.post;
-    _provider = p.localMediaPaths.isNotEmpty
-        ? FileImage(File(p.localMediaPaths.first))
-        : CachedNetworkImageProvider(
-            '${Env.apiBaseUrl}${p.remoteMediaUrls.first}',
-          );
-    _stream = _provider.resolve(const ImageConfiguration());
+    _load();
+  }
+
+  /// Belt and braces alongside the list keys: if this State is ever reused for
+  /// a different post, reload instead of keeping the old photo on screen.
+  @override
+  void didUpdateWidget(covariant _AdaptiveMedia old) {
+    super.didUpdateWidget(old);
+    final next = _postMediaSources(widget.post);
+    if (!listEquals(next, _sources)) {
+      _detach();
+      _ratio = null;
+      _page = 0;
+      _load();
+    }
+  }
+
+  void _load() {
+    _sources = _postMediaSources(widget.post);
+
+    // Size the frame from the first photo; a video-only post keeps 4:3.
+    final firstPhoto = _sources.firstWhere(
+      (s) => !MediaTools.isVideo(s),
+      orElse: () => '',
+    );
+    if (firstPhoto.isEmpty) return;
+
+    final provider = _isRemote(firstPhoto)
+        ? CachedNetworkImageProvider(firstPhoto) as ImageProvider
+        : FileImage(File(firstPhoto));
+    _stream = provider.resolve(const ImageConfiguration());
     _listener = ImageStreamListener((info, _) {
       if (!mounted) return;
       setState(() => _ratio = info.image.width / info.image.height);
@@ -461,28 +534,162 @@ class _AdaptiveMediaState extends State<_AdaptiveMedia> {
     _stream!.addListener(_listener!);
   }
 
-  @override
-  void dispose() {
+  void _detach() {
     final l = _listener;
     if (l != null) _stream?.removeListener(l);
+    _stream = null;
+    _listener = null;
+  }
+
+  @override
+  void dispose() {
+    _detach();
+    _pager.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_sources.isEmpty) return const SizedBox.shrink();
     // Until we know the real size, assume 4:3; then clamp so portraits don't
     // exceed ~5:4 tall and panoramas don't get too short.
     final ratio = (_ratio ?? 4 / 3).clamp(0.8, 1.9);
+
     return AspectRatio(
       aspectRatio: ratio,
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
-        child: Image(
-          image: _provider,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) =>
-              const Center(child: Icon(Icons.broken_image_outlined)),
-        ),
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pager,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemCount: _sources.length,
+            itemBuilder: (_, i) => _mediaTile(_sources[i]),
+          ),
+          if (_sources.length > 1)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Neo.white,
+                  border: Neo.borderThin,
+                  borderRadius: Neo.cornerSm,
+                ),
+                child: Text(
+                  '${_page + 1}/${_sources.length}',
+                  style: const TextStyle(
+                    color: Neo.ink,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Video inside the feed. Starts as a flat neo surface with a play button —
+/// no black poster — and only spins up the player once tapped.
+class _FeedVideo extends StatefulWidget {
+  const _FeedVideo({required this.src, required this.remote});
+  final String src;
+  final bool remote;
+
+  @override
+  State<_FeedVideo> createState() => _FeedVideoState();
+}
+
+class _FeedVideoState extends State<_FeedVideo> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  /// Same reasoning as [_AdaptiveMediaState]: never keep a previous clip's
+  /// player when the widget is recycled for another source.
+  @override
+  void didUpdateWidget(covariant _FeedVideo old) {
+    super.didUpdateWidget(old);
+    if (old.src != widget.src) {
+      _controller?.dispose();
+      _controller = null;
+      _ready = false;
+    }
+  }
+
+  Future<void> _start() async {
+    final c = widget.remote
+        ? VideoPlayerController.networkUrl(Uri.parse(widget.src))
+        : VideoPlayerController.file(File(widget.src));
+    _controller = c;
+    try {
+      await c.initialize();
+      if (!mounted) return;
+      setState(() => _ready = true);
+      await c.play();
+      c.addListener(() {
+        if (mounted) setState(() {});
+      });
+    } catch (_) {
+      // Codec or network trouble — the placeholder stays put.
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    final playing = _ready && c != null && c.value.isPlaying;
+
+    return GestureDetector(
+      onTap: () {
+        if (!_ready) {
+          _start();
+        } else if (c != null) {
+          playing ? c.pause() : c.play();
+          setState(() {});
+        }
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (_ready && c != null)
+            FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: c.value.size.width,
+                height: c.value.size.height,
+                child: VideoPlayer(c),
+              ),
+            )
+          else
+            const ColoredBox(color: Neo.lilac),
+          if (!playing)
+            Center(
+              child: Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Neo.pink,
+                  border: Neo.border,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Neo.ink,
+                  size: 30,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -569,6 +776,47 @@ class _PostCard extends StatelessWidget {
                     post.description,
                     style: txt.bodyMedium?.copyWith(height: 1.4),
                   ),
+                if ((post.placeLabel ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Neo.mint,
+                            border: Neo.borderThin,
+                            borderRadius: Neo.cornerSm,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.place_rounded,
+                                size: 14,
+                                color: Neo.ink,
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  post.placeLabel!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: txt.labelSmall?.copyWith(
+                                    color: Neo.ink,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (post.tags.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Wrap(

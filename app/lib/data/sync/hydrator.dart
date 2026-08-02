@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:isar_community/isar.dart';
+import 'package:path_provider/path_provider.dart';
 
+import '../../core/config/env.dart';
 import '../device/home_widgets.dart';
 import '../device/notifications.dart';
 import '../local/isar/note_local.dart';
@@ -257,6 +260,7 @@ class Hydrator {
           .map((u) => u.toString())
           .toList()
       ..remoteVideoUrl = j['video_url']?.toString()
+      ..remoteAudioUrl = j['audio_url']?.toString()
       ..latitude = _toDouble(j['latitude'])
       ..longitude = _toDouble(j['longitude'])
       ..placeLabel = j['place_label']?.toString()
@@ -292,6 +296,9 @@ class Hydrator {
           .map((t) => t.toString())
           .toList()
       ..isPrivate = j['private'] == true
+      ..latitude = _toDouble(j['latitude'])
+      ..longitude = _toDouble(j['longitude'])
+      ..placeLabel = j['place_label']?.toString()
       ..localMediaPaths = const []
       ..remoteMediaUrls = (j['media_urls'] as List? ?? const [])
           .map((u) => u.toString())
@@ -303,28 +310,73 @@ class Hydrator {
 
   /// Partner published a new "siente": cache it, notify, refresh the widget.
   Future<void> _onPartnerStatus(Map<String, dynamic> j) async {
-    await _isar.writeTxn(() => _upsertStatusInTxn(j));
+    // Pull the snapshot down first so both Isar and the widget can point at a
+    // local file — the home-screen widget can't fetch a URL itself.
+    final photo = await _cachePhoto(j['image_url']?.toString());
+    await _isar.writeTxn(() => _upsertStatusInTxn(j, localPhoto: photo));
+
     final text = j['text']?.toString() ?? '';
-    if (text.trim().isEmpty) return;
-    await Notifications.partnerStatus(_partnerName, text);
+    if (text.trim().isEmpty && photo == null) return;
+    await Notifications.partnerStatus(
+      _partnerName,
+      text.trim().isEmpty ? 'Te compartió una instantánea' : text,
+    );
     await HomeWidgets.pushStatus(
       author: _partnerName,
       text: text,
+      photoPath: photo,
       at: _date(j['updated_at']),
     );
   }
 
-  Future<void> _upsertStatusInTxn(Map<String, dynamic> j) async {
+  /// Download a status snapshot into the cache directory, returning its local
+  /// path. Re-uses an existing copy so repeated hydrations don't re-fetch.
+  Future<String?> _cachePhoto(String? url) async {
+    if (url == null || url.isEmpty) return null;
+    final absolute = url.startsWith('http') ? url : '${Env.apiBaseUrl}$url';
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/status_${absolute.hashCode}.img');
+      if (await file.exists()) return file.path;
+      final res = await _dio.get<List<int>>(
+        absolute,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = res.data;
+      if (bytes == null || bytes.isEmpty) return null;
+      await file.writeAsBytes(bytes);
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _upsertStatusInTxn(
+    Map<String, dynamic> j, {
+    String? localPhoto,
+  }) async {
     final authorId = j['author_id']?.toString();
     if (authorId == null) return;
     final existing = await _isar.statusLocals
         .filter()
         .authorIdEqualTo(authorId)
         .findFirst();
+    // Our own row can hold a snapshot that hasn't uploaded yet — don't let a
+    // pull overwrite it with the server's older copy.
+    if (existing != null &&
+        authorId == _selfId &&
+        existing.syncStatus == 'pending') {
+      return;
+    }
+    final remoteImage = j['image_url']?.toString();
     final row = existing ?? StatusLocal();
     row
       ..authorId = authorId
       ..text = j['text']?.toString() ?? ''
+      ..remoteImageUrl = (remoteImage == null || remoteImage.isEmpty)
+          ? null
+          : remoteImage
+      ..imagePath = localPhoto ?? (remoteImage == null ? null : row.imagePath)
       ..updatedAt = _date(j['updated_at']) ?? DateTime.now()
       ..syncStatus = 'synced';
     await _isar.statusLocals.put(row);

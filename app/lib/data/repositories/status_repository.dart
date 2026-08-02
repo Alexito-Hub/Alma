@@ -46,6 +46,7 @@ class StatusRepository {
   Future<void> updateMine({
     required String authorId,
     required String text,
+    String? imagePath,
   }) async {
     final existing = await _isar.statusLocals
         .filter()
@@ -55,6 +56,9 @@ class StatusRepository {
     row
       ..authorId = authorId
       ..text = text
+      // A new snapshot replaces the previous one; posting text alone clears it.
+      ..imagePath = imagePath
+      ..remoteImageUrl = null
       ..updatedAt = DateTime.now()
       ..syncStatus = 'pending';
     await _isar.writeTxn(() async {

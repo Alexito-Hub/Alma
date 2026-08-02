@@ -22,14 +22,24 @@ const StatusLocalSchema = CollectionSchema(
       name: r'authorId',
       type: IsarType.string,
     ),
-    r'syncStatus': PropertySchema(
+    r'imagePath': PropertySchema(
       id: 1,
+      name: r'imagePath',
+      type: IsarType.string,
+    ),
+    r'remoteImageUrl': PropertySchema(
+      id: 2,
+      name: r'remoteImageUrl',
+      type: IsarType.string,
+    ),
+    r'syncStatus': PropertySchema(
+      id: 3,
       name: r'syncStatus',
       type: IsarType.string,
     ),
-    r'text': PropertySchema(id: 2, name: r'text', type: IsarType.string),
+    r'text': PropertySchema(id: 4, name: r'text', type: IsarType.string),
     r'updatedAt': PropertySchema(
-      id: 3,
+      id: 5,
       name: r'updatedAt',
       type: IsarType.dateTime,
     ),
@@ -97,6 +107,18 @@ int _statusLocalEstimateSize(
 ) {
   var bytesCount = offsets.last;
   bytesCount += 3 + object.authorId.length * 3;
+  {
+    final value = object.imagePath;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.remoteImageUrl;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.syncStatus.length * 3;
   bytesCount += 3 + object.text.length * 3;
   return bytesCount;
@@ -109,9 +131,11 @@ void _statusLocalSerialize(
   Map<Type, List<int>> allOffsets,
 ) {
   writer.writeString(offsets[0], object.authorId);
-  writer.writeString(offsets[1], object.syncStatus);
-  writer.writeString(offsets[2], object.text);
-  writer.writeDateTime(offsets[3], object.updatedAt);
+  writer.writeString(offsets[1], object.imagePath);
+  writer.writeString(offsets[2], object.remoteImageUrl);
+  writer.writeString(offsets[3], object.syncStatus);
+  writer.writeString(offsets[4], object.text);
+  writer.writeDateTime(offsets[5], object.updatedAt);
 }
 
 StatusLocal _statusLocalDeserialize(
@@ -122,10 +146,12 @@ StatusLocal _statusLocalDeserialize(
 ) {
   final object = StatusLocal();
   object.authorId = reader.readString(offsets[0]);
+  object.imagePath = reader.readStringOrNull(offsets[1]);
   object.isarId = id;
-  object.syncStatus = reader.readString(offsets[1]);
-  object.text = reader.readString(offsets[2]);
-  object.updatedAt = reader.readDateTime(offsets[3]);
+  object.remoteImageUrl = reader.readStringOrNull(offsets[2]);
+  object.syncStatus = reader.readString(offsets[3]);
+  object.text = reader.readString(offsets[4]);
+  object.updatedAt = reader.readDateTime(offsets[5]);
   return object;
 }
 
@@ -139,10 +165,14 @@ P _statusLocalDeserializeProp<P>(
     case 0:
       return (reader.readString(offset)) as P;
     case 1:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 2:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 3:
+      return (reader.readString(offset)) as P;
+    case 4:
+      return (reader.readString(offset)) as P;
+    case 5:
       return (reader.readDateTime(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -672,6 +702,165 @@ extension StatusLocalQueryFilter
     });
   }
 
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'imagePath'),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'imagePath'),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'imagePath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'imagePath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'imagePath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'imagePath',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'imagePath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'imagePath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'imagePath',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'imagePath',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'imagePath', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  imagePathIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'imagePath', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition> isarIdEqualTo(
     Id value,
   ) {
@@ -725,6 +914,165 @@ extension StatusLocalQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'remoteImageUrl'),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'remoteImageUrl'),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlEqualTo(String? value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'remoteImageUrl',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'remoteImageUrl',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'remoteImageUrl',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'remoteImageUrl',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'remoteImageUrl',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'remoteImageUrl',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'remoteImageUrl',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'remoteImageUrl',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'remoteImageUrl', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterFilterCondition>
+  remoteImageUrlIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'remoteImageUrl', value: ''),
       );
     });
   }
@@ -1093,6 +1441,31 @@ extension StatusLocalQuerySortBy
     });
   }
 
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> sortByImagePath() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'imagePath', Sort.asc);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> sortByImagePathDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'imagePath', Sort.desc);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> sortByRemoteImageUrl() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'remoteImageUrl', Sort.asc);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy>
+  sortByRemoteImageUrlDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'remoteImageUrl', Sort.desc);
+    });
+  }
+
   QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> sortBySyncStatus() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'syncStatus', Sort.asc);
@@ -1144,6 +1517,18 @@ extension StatusLocalQuerySortThenBy
     });
   }
 
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> thenByImagePath() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'imagePath', Sort.asc);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> thenByImagePathDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'imagePath', Sort.desc);
+    });
+  }
+
   QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> thenByIsarId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isarId', Sort.asc);
@@ -1153,6 +1538,19 @@ extension StatusLocalQuerySortThenBy
   QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> thenByIsarIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isarId', Sort.desc);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy> thenByRemoteImageUrl() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'remoteImageUrl', Sort.asc);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QAfterSortBy>
+  thenByRemoteImageUrlDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'remoteImageUrl', Sort.desc);
     });
   }
 
@@ -1203,6 +1601,25 @@ extension StatusLocalQueryWhereDistinct
     });
   }
 
+  QueryBuilder<StatusLocal, StatusLocal, QDistinct> distinctByImagePath({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'imagePath', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<StatusLocal, StatusLocal, QDistinct> distinctByRemoteImageUrl({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(
+        r'remoteImageUrl',
+        caseSensitive: caseSensitive,
+      );
+    });
+  }
+
   QueryBuilder<StatusLocal, StatusLocal, QDistinct> distinctBySyncStatus({
     bool caseSensitive = true,
   }) {
@@ -1237,6 +1654,19 @@ extension StatusLocalQueryProperty
   QueryBuilder<StatusLocal, String, QQueryOperations> authorIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'authorId');
+    });
+  }
+
+  QueryBuilder<StatusLocal, String?, QQueryOperations> imagePathProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'imagePath');
+    });
+  }
+
+  QueryBuilder<StatusLocal, String?, QQueryOperations>
+  remoteImageUrlProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'remoteImageUrl');
     });
   }
 

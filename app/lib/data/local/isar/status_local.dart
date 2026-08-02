@@ -12,6 +12,12 @@ class StatusLocal {
 
   late String text;
 
+  /// Optional snapshot that came with the status: a photo taken right then.
+  /// [imagePath] is the local file (ours, or a partner photo we haven't
+  /// downloaded); [remoteImageUrl] is the server copy once uploaded.
+  String? imagePath;
+  String? remoteImageUrl;
+
   @Index()
   late DateTime updatedAt;
 
