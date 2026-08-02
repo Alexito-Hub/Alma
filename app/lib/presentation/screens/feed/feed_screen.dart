@@ -193,7 +193,7 @@ class _ModeToggle extends StatelessWidget {
         borderRadius: Neo.cornerSm,
         boxShadow: Neo.shadow(const Offset(3, 3)),
       ),
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: Clip.antiAliasWithSaveLayer,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -398,7 +398,7 @@ class _PostGrid extends StatelessWidget {
               borderRadius: Neo.cornerSm,
               boxShadow: Neo.shadow(const Offset(3, 3)),
             ),
-            clipBehavior: Clip.antiAlias,
+            clipBehavior: Clip.antiAliasWithSaveLayer,
             child: _MediaThumb(post: p),
           ),
         );

@@ -309,9 +309,10 @@ class _NeoIconButtonState extends State<NeoIconButton> {
       decoration: BoxDecoration(
         color: enabled ? widget.color : const Color(0xFFE6DCC9),
         border: Neo.border,
-        borderRadius: widget.circle
-            ? BorderRadius.circular(widget.size)
-            : Neo.cornerSm,
+        // A true circle, not a rounded rect with an oversized radius: the
+        // latter gets clamped and leaves the stroke's inner edge slightly oval.
+        shape: widget.circle ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: widget.circle ? null : Neo.cornerSm,
         boxShadow: (pressed || !enabled) ? const [] : Neo.shadow(off),
       ),
       child: Icon(widget.icon, size: widget.iconSize, color: widget.iconColor),
@@ -356,18 +357,47 @@ class NeoAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    // Painted in three passes so the stroke never fights the content:
+    //   1. fill + hard shadow on the outer circle,
+    //   2. content clipped to the *inner* circle (inset by the stroke), and
+    //   3. the ring on top.
+    // Clipping to the outer circle instead — the obvious one-Container
+    // version — leaves the child sitting under the stroke, and the two
+    // antialiased edges meet as a ragged dark fringe.
+    final inner = (size - borderWidth * 2).clamp(0.0, size);
+
+    return SizedBox(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Neo.ink, width: borderWidth),
-        boxShadow: Neo.shadow(shadowOffset),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: Neo.shadow(shadowOffset),
+            ),
+          ),
+          if (child != null)
+            ClipOval(
+              clipBehavior: Clip.antiAliasWithSaveLayer,
+              child: SizedBox(width: inner, height: inner, child: child),
+            ),
+          IgnorePointer(
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Neo.ink, width: borderWidth),
+              ),
+            ),
+          ),
+        ],
       ),
-      clipBehavior: Clip.antiAlias,
-      alignment: Alignment.center,
-      child: child,
     );
   }
 }

@@ -364,7 +364,7 @@ class _FullMedia extends StatelessWidget {
         borderRadius: Neo.corner,
         boxShadow: Neo.shadow(Neo.shadowBtn),
       ),
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: Clip.antiAliasWithSaveLayer,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 460),
         child: InteractiveViewer(

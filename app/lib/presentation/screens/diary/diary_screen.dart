@@ -1049,7 +1049,7 @@ class _VideoTileState extends State<_VideoTile> {
                     decoration: BoxDecoration(
                       color: Neo.pink,
                       border: Neo.border,
-                      borderRadius: BorderRadius.circular(56),
+                      shape: BoxShape.circle,
                     ),
                     child: const Icon(
                       Icons.play_arrow_rounded,
@@ -1651,7 +1651,7 @@ class _ComposerState extends State<_Composer> {
                         border: Neo.borderThin,
                         borderRadius: Neo.cornerSm,
                       ),
-                      clipBehavior: Clip.antiAlias,
+                      clipBehavior: Clip.antiAliasWithSaveLayer,
                       child: Image.file(File(p), fit: BoxFit.cover),
                     ),
                     Positioned(
