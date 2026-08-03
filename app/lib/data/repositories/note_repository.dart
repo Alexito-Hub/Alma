@@ -15,17 +15,33 @@ final notesProvider = StreamProvider.autoDispose<List<NoteLocal>>(
   (ref) => ref.watch(noteRepositoryProvider).watchAll(),
 );
 
+/// The PIN-gated diary: entries marked private, kept out of every other view.
+final privateNotesProvider = StreamProvider.autoDispose<List<NoteLocal>>(
+  (ref) => ref.watch(noteRepositoryProvider).watchPrivate(),
+);
+
 /// Stream-based: the UI subscribes to Isar and re-renders the moment we
 /// insert. The sync worker updates the *same* rows in the background.
 class NoteRepository {
   Isar get _isar => IsarService.instance.db;
 
   Stream<List<NoteLocal>> watchAll() {
-    // Tombstones (pending remote delete) stay hidden.
+    // Tombstones (pending remote delete) and private entries stay hidden.
     return _isar.noteLocals
         .filter()
         .not()
         .syncStatusEqualTo('deleted')
+        .isPrivateEqualTo(false)
+        .sortByCreatedAtDesc()
+        .watch(fireImmediately: true);
+  }
+
+  Stream<List<NoteLocal>> watchPrivate() {
+    return _isar.noteLocals
+        .filter()
+        .not()
+        .syncStatusEqualTo('deleted')
+        .isPrivateEqualTo(true)
         .sortByCreatedAtDesc()
         .watch(fireImmediately: true);
   }
@@ -77,10 +93,11 @@ class NoteRepository {
     String? link,
     List<String> imagePaths = const [],
     String? audioPath,
-    String? videoPath,
+    List<String> videoPaths = const [],
     double? latitude,
     double? longitude,
     String? placeLabel,
+    bool private = false,
   }) async {
     final note = NoteLocal()
       ..body = body
@@ -90,18 +107,25 @@ class NoteRepository {
       ..link = link
       ..imagePaths = imagePaths
       ..audioPath = audioPath
-      ..videoPath = videoPath
+      ..videoPaths = videoPaths
       ..latitude = latitude
       ..longitude = longitude
       ..placeLabel = placeLabel
+      ..isPrivate = private
       ..syncStatus = 'pending';
     await _isar.writeTxn(() async {
       await _isar.noteLocals.put(note);
     });
   }
 
-  /// Set (or clear, with a null emoji) the partner's private reaction on an
-  /// entry. Replaces "likes". Local-only for now.
+  /// Set (or clear, with a null emoji) the reaction on an entry. Replaces
+  /// "likes".
+  ///
+  /// Flagged for sync like any other change: a reaction is something you leave
+  /// *for the other person*, so one that never left the phone was pointless.
+  /// It travels on the same PUT as a text edit; the server scopes the reaction
+  /// to the couple and the body to its author, so reacting to an entry you
+  /// didn't write works and still can't rewrite it.
   Future<void> setReaction({
     required int isarId,
     required String authorId,
@@ -112,7 +136,8 @@ class NoteRepository {
       if (n == null) return;
       n
         ..reactionEmoji = emoji
-        ..reactionAuthorId = emoji == null ? null : authorId;
+        ..reactionAuthorId = emoji == null ? null : authorId
+        ..syncStatus = n.remoteId == null ? 'pending' : 'edited';
       await _isar.noteLocals.put(n);
     });
   }

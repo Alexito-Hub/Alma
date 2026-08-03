@@ -9,6 +9,13 @@ class CommentLocal {
   @Index()
   String? remoteId;
 
+  /// What the thread hangs off: 'note' for diary entries, 'post' for the
+  /// retired feed.
+  @Index()
+  String targetType = 'post';
+
+  /// Id of that target (kept named postId for the rows written before diary
+  /// comments existed).
   @Index()
   late String postId;
   late String authorId;

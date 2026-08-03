@@ -49,6 +49,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       return 'La contraseña necesita 8+ caracteres';
     }
     if (s.contains('invalid_email')) return 'Correo inválido';
+    // The server keeps an allowlist; this is Alma, not a signup page.
+    if (s.contains('registration_closed')) {
+      return 'Este servidor no acepta cuentas nuevas';
+    }
     if (looksLikeNetworkError(s)) return 'Sin conexión con el servidor';
     return 'No se pudo crear la cuenta';
   }

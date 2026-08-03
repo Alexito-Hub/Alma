@@ -12,6 +12,7 @@ defmodule Alma.Statuses do
 
   def update(user, text, image_url \\ nil) do
     now = DateTime.utc_now()
+    previous = user["current_status_image"]
 
     :ok =
       Accounts.update_user(user["_id"], %{
@@ -19,6 +20,12 @@ defmodule Alma.Statuses do
         "current_status_image" => image_url,
         "status_updated_at" => now
       })
+
+    # A status is a snapshot of *now*: only the current photo is kept, so the
+    # one it replaces is deleted instead of piling up on disk forever.
+    if is_binary(previous) and previous != image_url do
+      Alma.Media.delete_urls(previous)
+    end
 
     payload = %{
       "author_id" => user["_id"],
@@ -62,8 +69,7 @@ defmodule Alma.Statuses do
       "author_id" => user["_id"],
       "text" => user["current_status"] || "",
       "image_url" => user["current_status_image"],
-      "updated_at" =>
-        (user["status_updated_at"] || DateTime.utc_now()) |> DateTime.to_iso8601()
+      "updated_at" => (user["status_updated_at"] || DateTime.utc_now()) |> DateTime.to_iso8601()
     }
   end
 end

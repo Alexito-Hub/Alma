@@ -19,10 +19,7 @@ class VoiceRecorder {
     final dir = await getTemporaryDirectory();
     final path =
         '${dir.path}/alma_voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _recorder.start(
-      const RecordConfig(bitRate: 96000),
-      path: path,
-    );
+    await _recorder.start(const RecordConfig(bitRate: 96000), path: path);
     return path;
   }
 

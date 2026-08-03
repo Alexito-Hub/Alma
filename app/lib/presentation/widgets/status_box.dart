@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/config/env.dart';
 import '../../core/theme/neo.dart';
+import '../../data/remote/media_headers.dart';
 
 /// Flat neo-brutalist card showing the partner's most recent status
 /// (their breve "qué siento ahora"). Animates whenever the text changes and
@@ -81,16 +82,8 @@ class StatusBox extends StatelessWidget {
             ),
             if (_hasPhoto) ...[
               const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: Neo.cornerSm,
-                clipBehavior: Clip.antiAliasWithSaveLayer,
-                child: AspectRatio(
-                  aspectRatio: 4 / 3,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(border: Neo.borderThin),
-                    child: _photo(),
-                  ),
-                ),
+              NeoFrame(
+                child: AspectRatio(aspectRatio: 4 / 3, child: _photo()),
               ),
             ],
             const SizedBox(height: 10),
@@ -121,6 +114,7 @@ class StatusBox extends StatelessWidget {
         : '${Env.apiBaseUrl}${imageUrl!}';
     return CachedNetworkImage(
       imageUrl: url,
+      httpHeaders: mediaHeaders(),
       fit: BoxFit.cover,
       errorWidget: (_, _, _) =>
           const ColoredBox(color: Neo.white, child: Icon(Icons.image_outlined)),

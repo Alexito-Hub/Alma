@@ -5,13 +5,31 @@ defmodule Alma.Accounts do
 
   @coll "users"
 
+  @doc """
+  Create an account.
+
+  Registration is gated by `ALMA_ALLOWED_EMAILS` (see `allowed?/1`). Alma is a
+  server for two people behind a public tunnel, and the endpoint was open: a
+  stranger couldn't read the couple's data — every query is scoped by
+  `couple_id` — but they could hold an account and upload media, which is disk
+  on someone's laptop.
+  """
   def register(email, password) when is_binary(email) and is_binary(password) do
     email = String.downcase(email)
 
     cond do
-      not valid_email?(email) -> {:error, :invalid_email}
-      String.length(password) < 8 -> {:error, :weak_password}
-      get_user_by_email(email) != nil -> {:error, :email_taken}
+      not valid_email?(email) ->
+        {:error, :invalid_email}
+
+      not allowed?(email) ->
+        {:error, :registration_closed}
+
+      String.length(password) < 8 ->
+        {:error, :weak_password}
+
+      get_user_by_email(email) != nil ->
+        {:error, :email_taken}
+
       true ->
         doc = %{
           "email" => email,
@@ -62,6 +80,28 @@ defmodule Alma.Accounts do
       "couple_started_at"
     ])
     |> Map.put("id", user["_id"])
+  end
+
+  @doc """
+  Whether this address may register.
+
+  `ALMA_ALLOWED_EMAILS` is a comma-separated allowlist. Left unset — as in
+  local dev, and as on any box that hasn't been reconfigured — registration
+  stays open, so this can never lock the two of them out of their own server
+  by surprise. Set it in production once both accounts exist.
+  """
+  def allowed?(email) do
+    case allowlist() do
+      [] -> true
+      list -> String.downcase(email) in list
+    end
+  end
+
+  defp allowlist do
+    (System.get_env("ALMA_ALLOWED_EMAILS") || "")
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Enum.reject(&(&1 == ""))
   end
 
   defp valid_email?(s), do: Regex.match?(~r/^[^@\s]+@[^@\s]+\.[^@\s]+$/, s)

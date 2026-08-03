@@ -38,72 +38,87 @@ const NoteLocalSchema = CollectionSchema(
       name: r'imagePaths',
       type: IsarType.stringList,
     ),
-    r'lastError': PropertySchema(
+    r'isPrivate': PropertySchema(
       id: 5,
+      name: r'isPrivate',
+      type: IsarType.bool,
+    ),
+    r'lastError': PropertySchema(
+      id: 6,
       name: r'lastError',
       type: IsarType.string,
     ),
     r'latitude': PropertySchema(
-      id: 6,
+      id: 7,
       name: r'latitude',
       type: IsarType.double,
     ),
-    r'link': PropertySchema(id: 7, name: r'link', type: IsarType.string),
+    r'link': PropertySchema(id: 8, name: r'link', type: IsarType.string),
     r'longitude': PropertySchema(
-      id: 8,
+      id: 9,
       name: r'longitude',
       type: IsarType.double,
     ),
-    r'mood': PropertySchema(id: 9, name: r'mood', type: IsarType.string),
+    r'mood': PropertySchema(id: 10, name: r'mood', type: IsarType.string),
     r'placeLabel': PropertySchema(
-      id: 10,
+      id: 11,
       name: r'placeLabel',
       type: IsarType.string,
     ),
     r'reactionAuthorId': PropertySchema(
-      id: 11,
+      id: 12,
       name: r'reactionAuthorId',
       type: IsarType.string,
     ),
     r'reactionEmoji': PropertySchema(
-      id: 12,
+      id: 13,
       name: r'reactionEmoji',
       type: IsarType.string,
     ),
     r'remoteAudioUrl': PropertySchema(
-      id: 13,
+      id: 14,
       name: r'remoteAudioUrl',
       type: IsarType.string,
     ),
     r'remoteId': PropertySchema(
-      id: 14,
+      id: 15,
       name: r'remoteId',
       type: IsarType.string,
     ),
     r'remoteImageUrls': PropertySchema(
-      id: 15,
+      id: 16,
       name: r'remoteImageUrls',
       type: IsarType.stringList,
     ),
     r'remoteVideoUrl': PropertySchema(
-      id: 16,
+      id: 17,
       name: r'remoteVideoUrl',
       type: IsarType.string,
     ),
+    r'remoteVideoUrls': PropertySchema(
+      id: 18,
+      name: r'remoteVideoUrls',
+      type: IsarType.stringList,
+    ),
     r'retryCount': PropertySchema(
-      id: 17,
+      id: 19,
       name: r'retryCount',
       type: IsarType.long,
     ),
     r'syncStatus': PropertySchema(
-      id: 18,
+      id: 20,
       name: r'syncStatus',
       type: IsarType.string,
     ),
     r'videoPath': PropertySchema(
-      id: 19,
+      id: 21,
       name: r'videoPath',
       type: IsarType.string,
+    ),
+    r'videoPaths': PropertySchema(
+      id: 22,
+      name: r'videoPaths',
+      type: IsarType.stringList,
     ),
   },
 
@@ -149,6 +164,19 @@ const NoteLocalSchema = CollectionSchema(
           name: r'syncStatus',
           type: IndexType.hash,
           caseSensitive: true,
+        ),
+      ],
+    ),
+    r'isPrivate': IndexSchema(
+      id: -6464805474184949590,
+      name: r'isPrivate',
+      unique: false,
+      replace: false,
+      properties: [
+        IndexPropertySchema(
+          name: r'isPrivate',
+          type: IndexType.value,
+          caseSensitive: false,
         ),
       ],
     ),
@@ -244,11 +272,25 @@ int _noteLocalEstimateSize(
       bytesCount += 3 + value.length * 3;
     }
   }
+  bytesCount += 3 + object.remoteVideoUrls.length * 3;
+  {
+    for (var i = 0; i < object.remoteVideoUrls.length; i++) {
+      final value = object.remoteVideoUrls[i];
+      bytesCount += value.length * 3;
+    }
+  }
   bytesCount += 3 + object.syncStatus.length * 3;
   {
     final value = object.videoPath;
     if (value != null) {
       bytesCount += 3 + value.length * 3;
+    }
+  }
+  bytesCount += 3 + object.videoPaths.length * 3;
+  {
+    for (var i = 0; i < object.videoPaths.length; i++) {
+      final value = object.videoPaths[i];
+      bytesCount += value.length * 3;
     }
   }
   return bytesCount;
@@ -265,21 +307,24 @@ void _noteLocalSerialize(
   writer.writeString(offsets[2], object.body);
   writer.writeDateTime(offsets[3], object.createdAt);
   writer.writeStringList(offsets[4], object.imagePaths);
-  writer.writeString(offsets[5], object.lastError);
-  writer.writeDouble(offsets[6], object.latitude);
-  writer.writeString(offsets[7], object.link);
-  writer.writeDouble(offsets[8], object.longitude);
-  writer.writeString(offsets[9], object.mood);
-  writer.writeString(offsets[10], object.placeLabel);
-  writer.writeString(offsets[11], object.reactionAuthorId);
-  writer.writeString(offsets[12], object.reactionEmoji);
-  writer.writeString(offsets[13], object.remoteAudioUrl);
-  writer.writeString(offsets[14], object.remoteId);
-  writer.writeStringList(offsets[15], object.remoteImageUrls);
-  writer.writeString(offsets[16], object.remoteVideoUrl);
-  writer.writeLong(offsets[17], object.retryCount);
-  writer.writeString(offsets[18], object.syncStatus);
-  writer.writeString(offsets[19], object.videoPath);
+  writer.writeBool(offsets[5], object.isPrivate);
+  writer.writeString(offsets[6], object.lastError);
+  writer.writeDouble(offsets[7], object.latitude);
+  writer.writeString(offsets[8], object.link);
+  writer.writeDouble(offsets[9], object.longitude);
+  writer.writeString(offsets[10], object.mood);
+  writer.writeString(offsets[11], object.placeLabel);
+  writer.writeString(offsets[12], object.reactionAuthorId);
+  writer.writeString(offsets[13], object.reactionEmoji);
+  writer.writeString(offsets[14], object.remoteAudioUrl);
+  writer.writeString(offsets[15], object.remoteId);
+  writer.writeStringList(offsets[16], object.remoteImageUrls);
+  writer.writeString(offsets[17], object.remoteVideoUrl);
+  writer.writeStringList(offsets[18], object.remoteVideoUrls);
+  writer.writeLong(offsets[19], object.retryCount);
+  writer.writeString(offsets[20], object.syncStatus);
+  writer.writeString(offsets[21], object.videoPath);
+  writer.writeStringList(offsets[22], object.videoPaths);
 }
 
 NoteLocal _noteLocalDeserialize(
@@ -294,22 +339,25 @@ NoteLocal _noteLocalDeserialize(
   object.body = reader.readString(offsets[2]);
   object.createdAt = reader.readDateTime(offsets[3]);
   object.imagePaths = reader.readStringList(offsets[4]) ?? [];
+  object.isPrivate = reader.readBool(offsets[5]);
   object.isarId = id;
-  object.lastError = reader.readStringOrNull(offsets[5]);
-  object.latitude = reader.readDoubleOrNull(offsets[6]);
-  object.link = reader.readStringOrNull(offsets[7]);
-  object.longitude = reader.readDoubleOrNull(offsets[8]);
-  object.mood = reader.readStringOrNull(offsets[9]);
-  object.placeLabel = reader.readStringOrNull(offsets[10]);
-  object.reactionAuthorId = reader.readStringOrNull(offsets[11]);
-  object.reactionEmoji = reader.readStringOrNull(offsets[12]);
-  object.remoteAudioUrl = reader.readStringOrNull(offsets[13]);
-  object.remoteId = reader.readStringOrNull(offsets[14]);
-  object.remoteImageUrls = reader.readStringList(offsets[15]) ?? [];
-  object.remoteVideoUrl = reader.readStringOrNull(offsets[16]);
-  object.retryCount = reader.readLong(offsets[17]);
-  object.syncStatus = reader.readString(offsets[18]);
-  object.videoPath = reader.readStringOrNull(offsets[19]);
+  object.lastError = reader.readStringOrNull(offsets[6]);
+  object.latitude = reader.readDoubleOrNull(offsets[7]);
+  object.link = reader.readStringOrNull(offsets[8]);
+  object.longitude = reader.readDoubleOrNull(offsets[9]);
+  object.mood = reader.readStringOrNull(offsets[10]);
+  object.placeLabel = reader.readStringOrNull(offsets[11]);
+  object.reactionAuthorId = reader.readStringOrNull(offsets[12]);
+  object.reactionEmoji = reader.readStringOrNull(offsets[13]);
+  object.remoteAudioUrl = reader.readStringOrNull(offsets[14]);
+  object.remoteId = reader.readStringOrNull(offsets[15]);
+  object.remoteImageUrls = reader.readStringList(offsets[16]) ?? [];
+  object.remoteVideoUrl = reader.readStringOrNull(offsets[17]);
+  object.remoteVideoUrls = reader.readStringList(offsets[18]) ?? [];
+  object.retryCount = reader.readLong(offsets[19]);
+  object.syncStatus = reader.readString(offsets[20]);
+  object.videoPath = reader.readStringOrNull(offsets[21]);
+  object.videoPaths = reader.readStringList(offsets[22]) ?? [];
   return object;
 }
 
@@ -331,15 +379,15 @@ P _noteLocalDeserializeProp<P>(
     case 4:
       return (reader.readStringList(offset) ?? []) as P;
     case 5:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBool(offset)) as P;
     case 6:
-      return (reader.readDoubleOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 7:
-      return (reader.readStringOrNull(offset)) as P;
-    case 8:
       return (reader.readDoubleOrNull(offset)) as P;
-    case 9:
+    case 8:
       return (reader.readStringOrNull(offset)) as P;
+    case 9:
+      return (reader.readDoubleOrNull(offset)) as P;
     case 10:
       return (reader.readStringOrNull(offset)) as P;
     case 11:
@@ -351,15 +399,21 @@ P _noteLocalDeserializeProp<P>(
     case 14:
       return (reader.readStringOrNull(offset)) as P;
     case 15:
-      return (reader.readStringList(offset) ?? []) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 16:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readStringList(offset) ?? []) as P;
     case 17:
-      return (reader.readLong(offset)) as P;
-    case 18:
-      return (reader.readString(offset)) as P;
-    case 19:
       return (reader.readStringOrNull(offset)) as P;
+    case 18:
+      return (reader.readStringList(offset) ?? []) as P;
+    case 19:
+      return (reader.readLong(offset)) as P;
+    case 20:
+      return (reader.readString(offset)) as P;
+    case 21:
+      return (reader.readStringOrNull(offset)) as P;
+    case 22:
+      return (reader.readStringList(offset) ?? []) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
@@ -389,6 +443,14 @@ extension NoteLocalQueryWhereSort
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         const IndexWhereClause.any(indexName: r'createdAt'),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterWhere> anyIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        const IndexWhereClause.any(indexName: r'isPrivate'),
       );
     });
   }
@@ -697,6 +759,60 @@ extension NoteLocalQueryWhere
                 indexName: r'syncStatus',
                 lower: [],
                 upper: [syncStatus],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterWhereClause> isPrivateEqualTo(
+    bool isPrivate,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(indexName: r'isPrivate', value: [isPrivate]),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterWhereClause> isPrivateNotEqualTo(
+    bool isPrivate,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [],
+                upper: [isPrivate],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [isPrivate],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [isPrivate],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'isPrivate',
+                lower: [],
+                upper: [isPrivate],
                 includeUpper: false,
               ),
             );
@@ -1412,6 +1528,16 @@ extension NoteLocalQueryFilter
         includeLower,
         upper,
         includeUpper,
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition> isPrivateEqualTo(
+    bool value,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'isPrivate', value: value),
       );
     });
   }
@@ -3311,6 +3437,206 @@ extension NoteLocalQueryFilter
     });
   }
 
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'remoteVideoUrls',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'remoteVideoUrls',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'remoteVideoUrls',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'remoteVideoUrls',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'remoteVideoUrls',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'remoteVideoUrls',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'remoteVideoUrls',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'remoteVideoUrls',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'remoteVideoUrls', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'remoteVideoUrls', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'remoteVideoUrls', length, true, length, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'remoteVideoUrls', 0, true, 0, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'remoteVideoUrls', 0, false, 999999, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsLengthLessThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'remoteVideoUrls', 0, true, length, include);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsLengthGreaterThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'remoteVideoUrls',
+        length,
+        include,
+        999999,
+        true,
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  remoteVideoUrlsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'remoteVideoUrls',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
+
   QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition> retryCountEqualTo(
     int value,
   ) {
@@ -3679,6 +4005,200 @@ extension NoteLocalQueryFilter
       );
     });
   }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'videoPaths',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'videoPaths',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'videoPaths',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'videoPaths',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'videoPaths',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'videoPaths',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'videoPaths',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'videoPaths',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'videoPaths', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsElementIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'videoPaths', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsLengthEqualTo(int length) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'videoPaths', length, true, length, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'videoPaths', 0, true, 0, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'videoPaths', 0, false, 999999, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsLengthLessThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'videoPaths', 0, true, length, include);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsLengthGreaterThan(int length, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(r'videoPaths', length, include, 999999, true);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterFilterCondition>
+  videoPathsLengthBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.listLength(
+        r'videoPaths',
+        lower,
+        includeLower,
+        upper,
+        includeUpper,
+      );
+    });
+  }
 }
 
 extension NoteLocalQueryObject
@@ -3733,6 +4253,18 @@ extension NoteLocalQuerySortBy on QueryBuilder<NoteLocal, NoteLocal, QSortBy> {
   QueryBuilder<NoteLocal, NoteLocal, QAfterSortBy> sortByCreatedAtDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'createdAt', Sort.desc);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterSortBy> sortByIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.asc);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterSortBy> sortByIsPrivateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.desc);
     });
   }
 
@@ -3956,6 +4488,18 @@ extension NoteLocalQuerySortThenBy
     });
   }
 
+  QueryBuilder<NoteLocal, NoteLocal, QAfterSortBy> thenByIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.asc);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QAfterSortBy> thenByIsPrivateDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'isPrivate', Sort.desc);
+    });
+  }
+
   QueryBuilder<NoteLocal, NoteLocal, QAfterSortBy> thenByIsarId() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'isarId', Sort.asc);
@@ -4176,6 +4720,12 @@ extension NoteLocalQueryWhereDistinct
     });
   }
 
+  QueryBuilder<NoteLocal, NoteLocal, QDistinct> distinctByIsPrivate() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'isPrivate');
+    });
+  }
+
   QueryBuilder<NoteLocal, NoteLocal, QDistinct> distinctByLastError({
     bool caseSensitive = true,
   }) {
@@ -4278,6 +4828,12 @@ extension NoteLocalQueryWhereDistinct
     });
   }
 
+  QueryBuilder<NoteLocal, NoteLocal, QDistinct> distinctByRemoteVideoUrls() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'remoteVideoUrls');
+    });
+  }
+
   QueryBuilder<NoteLocal, NoteLocal, QDistinct> distinctByRetryCount() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'retryCount');
@@ -4297,6 +4853,12 @@ extension NoteLocalQueryWhereDistinct
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'videoPath', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<NoteLocal, NoteLocal, QDistinct> distinctByVideoPaths() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'videoPaths');
     });
   }
 }
@@ -4336,6 +4898,12 @@ extension NoteLocalQueryProperty
   QueryBuilder<NoteLocal, List<String>, QQueryOperations> imagePathsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'imagePaths');
+    });
+  }
+
+  QueryBuilder<NoteLocal, bool, QQueryOperations> isPrivateProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'isPrivate');
     });
   }
 
@@ -4413,6 +4981,13 @@ extension NoteLocalQueryProperty
     });
   }
 
+  QueryBuilder<NoteLocal, List<String>, QQueryOperations>
+  remoteVideoUrlsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'remoteVideoUrls');
+    });
+  }
+
   QueryBuilder<NoteLocal, int, QQueryOperations> retryCountProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'retryCount');
@@ -4428,6 +5003,12 @@ extension NoteLocalQueryProperty
   QueryBuilder<NoteLocal, String?, QQueryOperations> videoPathProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'videoPath');
+    });
+  }
+
+  QueryBuilder<NoteLocal, List<String>, QQueryOperations> videoPathsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'videoPaths');
     });
   }
 }

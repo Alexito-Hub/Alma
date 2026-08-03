@@ -68,4 +68,24 @@ defmodule AlmaWeb.CoupleChannel do
     push(socket, "special_date_deleted", payload)
     {:noreply, socket}
   end
+
+  def handle_info({:new_comment, doc}, socket) do
+    push(socket, "new_comment", doc)
+    {:noreply, socket}
+  end
+
+  def handle_info({:new_date_idea, doc}, socket) do
+    push(socket, "new_date_idea", doc)
+    {:noreply, socket}
+  end
+
+  def handle_info({:date_idea_updated, doc}, socket) do
+    push(socket, "date_idea_updated", doc)
+    {:noreply, socket}
+  end
+
+  def handle_info({:date_idea_deleted, payload}, socket) do
+    push(socket, "date_idea_deleted", payload)
+    {:noreply, socket}
+  end
 end

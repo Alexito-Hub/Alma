@@ -38,7 +38,12 @@ const CommentLocalSchema = CollectionSchema(
       name: r'syncStatus',
       type: IsarType.string,
     ),
-    r'text': PropertySchema(id: 5, name: r'text', type: IsarType.string),
+    r'targetType': PropertySchema(
+      id: 5,
+      name: r'targetType',
+      type: IsarType.string,
+    ),
+    r'text': PropertySchema(id: 6, name: r'text', type: IsarType.string),
   },
 
   estimateSize: _commentLocalEstimateSize,
@@ -55,6 +60,19 @@ const CommentLocalSchema = CollectionSchema(
       properties: [
         IndexPropertySchema(
           name: r'remoteId',
+          type: IndexType.hash,
+          caseSensitive: true,
+        ),
+      ],
+    ),
+    r'targetType': IndexSchema(
+      id: 3231268277051933692,
+      name: r'targetType',
+      unique: false,
+      replace: false,
+      properties: [
+        IndexPropertySchema(
+          name: r'targetType',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -124,6 +142,7 @@ int _commentLocalEstimateSize(
     }
   }
   bytesCount += 3 + object.syncStatus.length * 3;
+  bytesCount += 3 + object.targetType.length * 3;
   bytesCount += 3 + object.text.length * 3;
   return bytesCount;
 }
@@ -139,7 +158,8 @@ void _commentLocalSerialize(
   writer.writeString(offsets[2], object.postId);
   writer.writeString(offsets[3], object.remoteId);
   writer.writeString(offsets[4], object.syncStatus);
-  writer.writeString(offsets[5], object.text);
+  writer.writeString(offsets[5], object.targetType);
+  writer.writeString(offsets[6], object.text);
 }
 
 CommentLocal _commentLocalDeserialize(
@@ -155,7 +175,8 @@ CommentLocal _commentLocalDeserialize(
   object.postId = reader.readString(offsets[2]);
   object.remoteId = reader.readStringOrNull(offsets[3]);
   object.syncStatus = reader.readString(offsets[4]);
-  object.text = reader.readString(offsets[5]);
+  object.targetType = reader.readString(offsets[5]);
+  object.text = reader.readString(offsets[6]);
   return object;
 }
 
@@ -177,6 +198,8 @@ P _commentLocalDeserializeProp<P>(
     case 4:
       return (reader.readString(offset)) as P;
     case 5:
+      return (reader.readString(offset)) as P;
+    case 6:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -360,6 +383,59 @@ extension CommentLocalQueryWhere
                 indexName: r'remoteId',
                 lower: [],
                 upper: [remoteId],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterWhereClause> targetTypeEqualTo(
+    String targetType,
+  ) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(indexName: r'targetType', value: [targetType]),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterWhereClause>
+  targetTypeNotEqualTo(String targetType) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'targetType',
+                lower: [],
+                upper: [targetType],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'targetType',
+                lower: [targetType],
+                includeLower: false,
+                upper: [],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'targetType',
+                lower: [targetType],
+                includeLower: false,
+                upper: [],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'targetType',
+                lower: [],
+                upper: [targetType],
                 includeUpper: false,
               ),
             );
@@ -1274,6 +1350,147 @@ extension CommentLocalQueryFilter
     });
   }
 
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeEqualTo(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'targetType',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'targetType',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'targetType',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'targetType',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'targetType',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeEndsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'targetType',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'targetType',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'targetType',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'targetType', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition>
+  targetTypeIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'targetType', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<CommentLocal, CommentLocal, QAfterFilterCondition> textEqualTo(
     String value, {
     bool caseSensitive = true,
@@ -1491,6 +1708,19 @@ extension CommentLocalQuerySortBy
     });
   }
 
+  QueryBuilder<CommentLocal, CommentLocal, QAfterSortBy> sortByTargetType() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'targetType', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterSortBy>
+  sortByTargetTypeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'targetType', Sort.desc);
+    });
+  }
+
   QueryBuilder<CommentLocal, CommentLocal, QAfterSortBy> sortByText() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'text', Sort.asc);
@@ -1579,6 +1809,19 @@ extension CommentLocalQuerySortThenBy
     });
   }
 
+  QueryBuilder<CommentLocal, CommentLocal, QAfterSortBy> thenByTargetType() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'targetType', Sort.asc);
+    });
+  }
+
+  QueryBuilder<CommentLocal, CommentLocal, QAfterSortBy>
+  thenByTargetTypeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'targetType', Sort.desc);
+    });
+  }
+
   QueryBuilder<CommentLocal, CommentLocal, QAfterSortBy> thenByText() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'text', Sort.asc);
@@ -1632,6 +1875,14 @@ extension CommentLocalQueryWhereDistinct
     });
   }
 
+  QueryBuilder<CommentLocal, CommentLocal, QDistinct> distinctByTargetType({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'targetType', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<CommentLocal, CommentLocal, QDistinct> distinctByText({
     bool caseSensitive = true,
   }) {
@@ -1676,6 +1927,12 @@ extension CommentLocalQueryProperty
   QueryBuilder<CommentLocal, String, QQueryOperations> syncStatusProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'syncStatus');
+    });
+  }
+
+  QueryBuilder<CommentLocal, String, QQueryOperations> targetTypeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'targetType');
     });
   }
 

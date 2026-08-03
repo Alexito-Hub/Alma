@@ -61,7 +61,13 @@ defmodule AlmaWeb.Router do
     get "/posts/:id/comments", CommentController, :index
 
     resources "/notes", NoteController, only: [:create, :index, :update, :delete]
+    get "/notes/:id/comments", NoteCommentController, :index
+    post "/notes/:id/comments", NoteCommentController, :create
     resources "/special_dates", SpecialDateController, only: [:index, :create, :delete]
+
+    # "Citas": shared plans, pending and lived.
+    resources "/date_ideas", DateIdeaController, only: [:index, :create, :update, :delete]
+
     put "/status", StatusController, :update
     get "/status", StatusController, :show
 

@@ -9,16 +9,16 @@ import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/status_repository.dart';
 import '../../data/sync/hydrator.dart';
 import '../../data/sync/sync_worker.dart';
+import '../../presentation/screens/citas/citas_screen.dart';
 import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/diary/diary_screen.dart';
-import '../../presentation/screens/feed/feed_screen.dart';
 import '../../presentation/screens/quick_action/quick_action_sheet.dart';
 import '../../presentation/screens/settings/settings_screen.dart';
 import '../theme/neo.dart';
 
 /// App shell with a neo-brutalist bottom navigation bar.
 ///
-/// Destinations: Inicio (0) · Diario (1) · Feed (2) · Ajustes (3), with a
+/// Destinations: Inicio (0) · Diario (1) · Citas (2) · Ajustes (3), with a
 /// central "Crear" button that opens the capture sheet. Tabs are kept alive in
 /// an [IndexedStack] so each keeps its scroll/state. The Android back button
 /// returns to Inicio before it's allowed to exit the app.
@@ -36,7 +36,7 @@ class _AppShellState extends ConsumerState<AppShell>
   static const _pages = [
     DashboardScreen(),
     DiaryScreen(),
-    FeedScreen(),
+    CitasScreen(),
     SettingsScreen(),
   ];
 
@@ -82,10 +82,15 @@ class _AppShellState extends ConsumerState<AppShell>
     final partner = ref.read(partnerUserProvider);
     final status = ref.read(partnerStatusProvider).valueOrNull;
     if (status == null) return;
+    // Fall back to fetching the snapshot if we don't hold a local copy yet,
+    // otherwise the widget would silently drop the photo.
+    final photo =
+        status.imagePath ??
+        await Hydrator.instance.cacheStatusPhoto(status.remoteImageUrl);
     await HomeWidgets.pushStatus(
       author: partner?.prettyName,
       text: status.text,
-      photoPath: status.imagePath,
+      photoPath: photo,
       at: status.updatedAt,
     );
   }
@@ -169,9 +174,9 @@ class _NeoBottomBar extends StatelessWidget {
               ),
               _CreateButton(onTap: onCreate),
               _NavItem(
-                icon: Icons.photo_library_rounded,
-                label: 'Feed',
-                color: Neo.sky,
+                icon: Icons.favorite_border_rounded,
+                label: 'Citas',
+                color: Neo.coral,
                 active: index == 2,
                 onTap: () => onSelect(2),
               ),

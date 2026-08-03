@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/config/env.dart';
 import '../../../core/theme/neo.dart';
 import '../../../data/device/media_tools.dart';
+import '../../../data/remote/media_headers.dart';
 import '../../../data/repositories/auth_repository.dart';
 
 /// Edit profile from inside the app — change name and avatar. Sync and other
@@ -166,7 +167,11 @@ class _AvatarView extends StatelessWidget {
       final url = remoteUrl!.startsWith('http')
           ? remoteUrl!
           : '${Env.apiBaseUrl}$remoteUrl';
-      content = CachedNetworkImage(imageUrl: url, fit: BoxFit.cover);
+      content = CachedNetworkImage(
+        imageUrl: url,
+        httpHeaders: mediaHeaders(),
+        fit: BoxFit.cover,
+      );
     } else {
       content = const Icon(Icons.person, size: 52, color: Neo.ink);
     }

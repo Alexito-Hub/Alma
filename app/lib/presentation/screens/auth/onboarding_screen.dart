@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/config/env.dart';
 import '../../../core/theme/neo.dart';
 import '../../../data/device/media_tools.dart';
+import '../../../data/remote/media_headers.dart';
 import '../../../data/repositories/auth_repository.dart';
 
 /// Post-registration identity step. Asks for an avatar + display name so the
@@ -223,6 +224,7 @@ class _AvatarPicker extends StatelessWidget {
           : '${Env.apiBaseUrl}$remoteUrl';
       content = CachedNetworkImage(
         imageUrl: url,
+        httpHeaders: mediaHeaders(),
         fit: BoxFit.cover,
         errorWidget: (_, _, _) => _placeholder(),
       );

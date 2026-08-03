@@ -177,6 +177,140 @@ class _NeoBoxState extends State<NeoBox> {
   }
 }
 
+/// Entrance animation: fades in while sliding up a little. Give siblings
+/// increasing [delay]s to stagger a screen so it assembles itself instead of
+/// appearing all at once.
+class NeoReveal extends StatefulWidget {
+  const NeoReveal({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+    this.offset = 18,
+  });
+
+  final Widget child;
+  final Duration delay;
+  final double offset;
+
+  @override
+  State<NeoReveal> createState() => _NeoRevealState();
+}
+
+class _NeoRevealState extends State<NeoReveal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.delay == Duration.zero) {
+      _c.forward();
+    } else {
+      Future.delayed(widget.delay, () {
+        if (mounted) _c.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, child) {
+        final t = Curves.easeOutCubic.transform(_c.value);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(
+            offset: Offset(0, (1 - t) * widget.offset),
+            child: child,
+          ),
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
+/// Bordered, clipped surface for **full-bleed** content: photos, video,
+/// segmented controls — anything that paints all the way to the edge.
+///
+/// Uses the same three passes as [NeoBox] (fill → content clipped to the
+/// *inner* curve → stroke on top). Clipping to the outer shape instead lets
+/// the content paint over the rounded corner and stick out past the stroke as
+/// a little point, which is why raw `Container(clipBehavior: ...)` must not be
+/// used for this.
+class NeoFrame extends StatelessWidget {
+  const NeoFrame({
+    super.key,
+    required this.child,
+    this.color = Neo.white,
+    this.radius = Neo.radiusSm,
+    this.borderWidth = Neo.strokeThin,
+    this.shadowOffset,
+    this.width,
+    this.height,
+  });
+
+  final Widget child;
+  final Color color;
+  final double radius;
+  final double borderWidth;
+
+  /// Null means no block shadow (used for tiles inside another surface).
+  final Offset? shadowOffset;
+  final double? width;
+  final double? height;
+
+  @override
+  Widget build(BuildContext context) {
+    final outer = BorderRadius.circular(radius);
+    final inner = (radius - borderWidth).clamp(0.0, radius);
+    final off = shadowOffset;
+
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: outer,
+        boxShadow: off == null ? null : Neo.shadow(off),
+      ),
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Padding(
+            padding: EdgeInsets.all(borderWidth),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(inner),
+              clipBehavior: Clip.antiAliasWithSaveLayer,
+              child: child,
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: outer,
+                  border: Border.all(color: Neo.ink, width: borderWidth),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The signature Neo button: pastel fill, black stroke, hard shadow, and a
 /// real mechanical press — it slides onto its shadow when held.
 class NeoButton extends StatefulWidget {

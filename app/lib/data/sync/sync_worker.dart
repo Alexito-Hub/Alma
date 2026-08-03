@@ -10,6 +10,7 @@ import '../../core/config/env.dart';
 import '../device/home_widgets.dart';
 import '../device/notifications.dart';
 import '../local/isar/comment_local.dart';
+import '../local/isar/date_idea_local.dart';
 import '../local/isar/note_local.dart';
 import '../local/isar/post_local.dart';
 import '../local/isar/special_date_local.dart';
@@ -19,6 +20,7 @@ import '../local/user_cache.dart';
 import '../remote/api_client.dart';
 import '../remote/endpoints.dart';
 import '../remote/token_storage.dart';
+import 'status_photo_cache.dart';
 import 'sync_prefs.dart';
 
 class SyncWorker {
@@ -48,18 +50,9 @@ Future<void> _runSync() async {
   final conn = await Connectivity().checkConnectivity();
   if (conn.contains(ConnectivityResult.none)) return;
 
-  // Respect "Wi-Fi only" preference per spec §2: at the user's option, skip
-  // mobile data uploads.
-  final wifiOnly = await SyncPrefs.wifiOnly();
-  final onWifi =
-      conn.contains(ConnectivityResult.wifi) ||
-      conn.contains(ConnectivityResult.ethernet);
-  if (wifiOnly && !onWifi) return;
-
   final token = await TokenStorage.read();
   if (token == null) return;
 
-  final isar = await IsarService.openForIsolate();
   final dio = Dio(
     BaseOptions(
       baseUrl: Env.apiBaseUrl,
@@ -69,20 +62,57 @@ Future<void> _runSync() async {
     ),
   );
 
-  // Recover uploads that were interrupted mid-flight last time.
-  await _reviveStalled(isar);
+  // "Sync only on Wi-Fi" is about not burning mobile data on photo and video
+  // *uploads*. It must not gate the few KB of JSON below: doing that meant no
+  // partner notifications at all on mobile data, since the preference is on
+  // by default.
+  final wifiOnly = await SyncPrefs.wifiOnly();
+  final onWifi =
+      conn.contains(ConnectivityResult.wifi) ||
+      conn.contains(ConnectivityResult.ethernet);
 
-  await _syncNotes(isar, dio);
-  await _syncNoteMutations(isar, dio);
-  await _syncStatus(isar, dio);
-  await _syncPosts(isar, dio);
-  await _syncPostMutations(isar, dio);
-  await _syncComments(isar, dio);
-  await _syncSpecialDates(isar, dio);
+  if (!wifiOnly || onWifi) {
+    final isar = await IsarService.openForIsolate();
+
+    // Recover uploads that were interrupted mid-flight last time.
+    await _reviveStalled(isar);
+
+    await _pushEverything(isar, dio);
+  }
 
   // With the app closed there is no WebSocket, so this tick is what surfaces
-  // the partner's activity and keeps the home-screen widget current.
+  // the partner's activity and keeps the home-screen widget current. Always
+  // runs, on any connection.
   await _notifyPartnerActivity(dio);
+}
+
+/// Push every kind of pending row, in order, isolating each step.
+///
+/// One shared pipeline for the background isolate and the foreground call so
+/// the two lists can't drift. Each step is wrapped: a step that throws (a
+/// timeout on the notes batch, say) used to abort everything queued behind it
+/// — posts, comments, special dates and citas all silently waited for the next
+/// tick because one request failed.
+Future<void> _pushEverything(Isar isar, Dio dio) async {
+  final myId = (await UserCache.read())?.me.id;
+  await _step(() => _syncNotes(isar, dio));
+  await _step(() => _syncNoteMutations(isar, dio, myId));
+  await _step(() => _syncStatus(isar, dio));
+  await _step(() => _syncPosts(isar, dio));
+  await _step(() => _syncPostMutations(isar, dio));
+  await _step(() => _syncComments(isar, dio));
+  await _step(() => _syncSpecialDates(isar, dio));
+  await _step(() => _syncDateIdeas(isar, dio));
+}
+
+/// Run one step of the pipeline, keeping its failure to itself. Anything that
+/// didn't go up stays flagged in Isar and is retried on the next tick.
+Future<void> _step(Future<void> Function() body) async {
+  try {
+    await body();
+  } catch (_) {
+    // Best effort by design — see [_pushEverything].
+  }
 }
 
 /// Poll for partner activity and raise a notification for anything new.
@@ -102,13 +132,20 @@ Future<void> _notifyPartnerActivity(Dio dio) async {
     final partner = _newestFrom(res.data['statuses'], myId, 'updated_at');
     final text = partner?['text']?.toString().trim() ?? '';
     final stamp = partner?['updated_at']?.toString() ?? '';
-    if (text.isNotEmpty && stamp.isNotEmpty) {
+    final photoUrl = partner?['image_url']?.toString();
+    if ((text.isNotEmpty || (photoUrl ?? '').isNotEmpty) && stamp.isNotEmpty) {
       if (await _isNewSince('status', stamp)) {
-        await Notifications.partnerStatus(partnerName, text);
+        await Notifications.partnerStatus(
+          partnerName,
+          text.isEmpty ? 'Te compartió una instantánea' : text,
+        );
       }
+      // Pass the snapshot along: pushing without it used to blank the photo
+      // out of the widget on every background tick.
       await HomeWidgets.pushStatus(
         author: partnerName,
         text: text,
+        photoPath: await cacheStatusPhotoWith(dio, photoUrl),
         at: DateTime.tryParse(stamp)?.toLocal(),
       );
     }
@@ -192,13 +229,7 @@ Future<void> runForegroundSync() async {
     // While the user is actively here, give stuck *and* previously-failed
     // uploads a fresh chance.
     await _reviveStalled(isar, includeFailed: true);
-    await _syncNotes(isar, dio);
-    await _syncNoteMutations(isar, dio);
-    await _syncStatus(isar, dio);
-    await _syncPosts(isar, dio);
-    await _syncPostMutations(isar, dio);
-    await _syncComments(isar, dio);
-    await _syncSpecialDates(isar, dio);
+    await _pushEverything(isar, dio);
   } catch (_) {
     // Best-effort; the periodic worker retries later.
   }
@@ -230,8 +261,11 @@ Future<void> _syncComments(Isar isar, Dio dio) async {
       .findAll();
   for (final c in pending) {
     try {
+      // Route by target: a diary comment posted to the feed route was stored
+      // against a post id, never broadcast and never read back — while the
+      // client happily marked it synced.
       final res = await dio.post(
-        Endpoints.postComments(c.postId),
+        Endpoints.commentsFor(c.targetType, c.postId),
         data: {'body': c.text},
       );
       if (res.statusCode == 200 || res.statusCode == 201) {
@@ -277,6 +311,20 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
         });
       }
     }
+    if (n.remoteVideoUrls.isEmpty && n.videoPaths.isNotEmpty) {
+      final urls = <String>[];
+      for (final path in n.videoPaths) {
+        final url = await _uploadFile(dio, path);
+        if (url != null) urls.add(url);
+      }
+      if (urls.isNotEmpty) {
+        await isar.writeTxn(() async {
+          n.remoteVideoUrls = urls;
+          await isar.noteLocals.put(n);
+        });
+      }
+    }
+    // Legacy single-video entries created before multi-video support.
     if (n.remoteVideoUrl == null && n.videoPath != null) {
       final url = await _uploadFile(dio, n.videoPath!);
       if (url != null) {
@@ -306,7 +354,9 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
       'created_at': n.createdAt.toUtc().toIso8601String(),
       'mood': n.mood,
       'link': n.link,
+      'private': n.isPrivate,
       'image_urls': n.remoteImageUrls,
+      'video_urls': n.remoteVideoUrls,
       'video_url': n.remoteVideoUrl,
       'audio_url': n.remoteAudioUrl,
       'latitude': n.latitude,
@@ -337,7 +387,15 @@ Future<void> _syncNotes(Isar isar, Dio dio) async {
 
 /// Push text edits (PUT) and deletions (DELETE) of diary entries. Deletions
 /// are tombstones: the local row only disappears once the server confirms.
-Future<void> _syncNoteMutations(Isar isar, Dio dio) async {
+///
+/// The payload carries the reaction as well as the text. They are two
+/// different things with two different owners — the body belongs to whoever
+/// wrote the entry, the reaction to whoever left it — and the server scopes
+/// each half accordingly, so a partner reacting to an entry they can't edit
+/// still gets their reaction stored. Sending both in one PUT keeps the client
+/// from having to know which half it is allowed to change: [myId] is passed
+/// only so we don't waste a request re-sending text we never touched.
+Future<void> _syncNoteMutations(Isar isar, Dio dio, String? myId) async {
   final edited = await isar.noteLocals
       .filter()
       .syncStatusEqualTo('edited')
@@ -345,10 +403,17 @@ Future<void> _syncNoteMutations(Isar isar, Dio dio) async {
   for (final n in edited) {
     final rid = n.remoteId;
     if (rid == null) continue;
+    final mine = myId == null || n.authorId == myId;
     try {
       final res = await dio.put(
         Endpoints.note(rid),
-        data: {'body': n.body, 'mood': n.mood, 'link': n.link},
+        data: {
+          if (mine) 'body': n.body,
+          if (mine) 'mood': n.mood,
+          if (mine) 'link': n.link,
+          'reaction_emoji': n.reactionEmoji,
+          'reaction_author_id': n.reactionAuthorId,
+        },
       );
       if (res.statusCode == 200) {
         await isar.writeTxn(() async {
@@ -447,6 +512,94 @@ Future<String?> _uploadFile(Dio dio, String path) async {
   return null;
 }
 
+/// Push "citas": new ideas, edits (including marking one as lived, which is
+/// what carries its photos up), and deletions.
+Future<void> _syncDateIdeas(Isar isar, Dio dio) async {
+  Future<Map<String, dynamic>> body(DateIdeaLocal d) async {
+    // Photos ride along on the row once uploaded, so a retry never re-uploads.
+    if (d.remoteImageUrls.isEmpty && d.imagePaths.isNotEmpty) {
+      final urls = <String>[];
+      for (final path in d.imagePaths) {
+        final url = await _uploadFile(dio, path);
+        if (url != null) urls.add(url);
+      }
+      if (urls.isNotEmpty) {
+        await isar.writeTxn(() async {
+          d.remoteImageUrls = urls;
+          await isar.dateIdeaLocals.put(d);
+        });
+      }
+    }
+
+    return {
+      'client_id': d.isarId.toString(),
+      'title': d.title,
+      'description': d.description,
+      'planned_at': d.plannedAt?.toUtc().toIso8601String(),
+      'done': d.done,
+      'done_at': d.doneAt?.toUtc().toIso8601String(),
+      'done_note': d.doneNote,
+      'image_urls': d.remoteImageUrls,
+      'latitude': d.latitude,
+      'longitude': d.longitude,
+      'place_label': d.placeLabel,
+      'created_at': d.createdAt.toUtc().toIso8601String(),
+    };
+  }
+
+  final pending = await isar.dateIdeaLocals
+      .filter()
+      .syncStatusEqualTo('pending')
+      .findAll();
+  for (final d in pending) {
+    try {
+      final res = await dio.post(Endpoints.dateIdeas, data: await body(d));
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final doc = res.data['date_idea'] as Map?;
+        await isar.writeTxn(() async {
+          d.remoteId = (doc?['_id'] ?? doc?['id'])?.toString();
+          if (d.syncStatus == 'pending') d.syncStatus = 'synced';
+          await isar.dateIdeaLocals.put(d);
+        });
+      }
+    } catch (_) {
+      // Retry next tick.
+    }
+  }
+
+  final edited = await isar.dateIdeaLocals
+      .filter()
+      .syncStatusEqualTo('edited')
+      .findAll();
+  for (final d in edited) {
+    final rid = d.remoteId;
+    if (rid == null) continue;
+    try {
+      final res = await dio.put(Endpoints.dateIdea(rid), data: await body(d));
+      if (res.statusCode == 200) {
+        await isar.writeTxn(() async {
+          d.syncStatus = 'synced';
+          await isar.dateIdeaLocals.put(d);
+        });
+      }
+    } catch (_) {
+      // Retry next tick.
+    }
+  }
+
+  final deleted = await isar.dateIdeaLocals
+      .filter()
+      .syncStatusEqualTo('deleted')
+      .findAll();
+  for (final d in deleted) {
+    if (await _remoteDeleteOk(dio, d.remoteId, Endpoints.dateIdea)) {
+      await isar.writeTxn(() async {
+        await isar.dateIdeaLocals.delete(d.isarId);
+      });
+    }
+  }
+}
+
 Future<void> _syncSpecialDates(Isar isar, Dio dio) async {
   final pending = await isar.specialDateLocals
       .filter()
@@ -542,19 +695,24 @@ Future<void> _syncPosts(Isar isar, Dio dio) async {
     });
 
     try {
-      // 1) Upload each media file (multipart), collect remote URLs.
-      final remoteUrls = <String>[];
-      for (final path in p.localMediaPaths) {
-        final file = File(path);
-        if (!await file.exists()) continue;
-        final form = FormData.fromMap({
-          'file': await MultipartFile.fromFile(file.path),
-        });
-        final mediaRes = await dio.post(Endpoints.mediaUpload, data: form);
-        if (mediaRes.statusCode == 200) {
-          remoteUrls.add(mediaRes.data['url']);
+      // 1) Upload the media once, persisting the URLs as soon as they come
+      //    back. Keeping them in a local variable until the post was created
+      //    meant every failed or interrupted attempt re-uploaded the whole set
+      //    under fresh names, leaking a full duplicate onto the server.
+      if (p.remoteMediaUrls.isEmpty && p.localMediaPaths.isNotEmpty) {
+        final uploaded = <String>[];
+        for (final path in p.localMediaPaths) {
+          final url = await _uploadFile(dio, path);
+          if (url != null) uploaded.add(url);
+        }
+        if (uploaded.isNotEmpty) {
+          await isar.writeTxn(() async {
+            p.remoteMediaUrls = uploaded;
+            await isar.postLocals.put(p);
+          });
         }
       }
+      final remoteUrls = p.remoteMediaUrls;
 
       // 2) Create the post referencing the remote URLs.
       final res = await dio.post(
@@ -576,7 +734,6 @@ Future<void> _syncPosts(Isar isar, Dio dio) async {
       if (res.statusCode == 200 || res.statusCode == 201) {
         await isar.writeTxn(() async {
           p.remoteId = res.data['id'];
-          p.remoteMediaUrls = remoteUrls;
           p.syncStatus = 'synced';
           p.lastError = null;
           await isar.postLocals.put(p);

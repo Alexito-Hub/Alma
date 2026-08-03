@@ -54,23 +54,27 @@ defmodule Alma.SpecialDates do
     MongoClient.find(@coll, %{"couple_id" => couple_id}, sort: %{"date" => 1}, limit: 500)
   end
 
-  @doc "Delete a special date scoped to the caller's couple. Broadcasts so the partner's calendar drops it live."
+  @doc """
+  Delete a special date scoped to the caller's couple. Broadcasts so the
+  partner's calendar drops it live. A malformed id is "no such date", not a
+  crash.
+  """
   def delete(couple_id, id) when is_binary(id) do
-    result =
-      Mongo.delete_one(:mongo, @coll, %{
-        "_id" => BSON.ObjectId.decode!(id),
-        "couple_id" => couple_id
-      })
+    with {:ok, oid} <- MongoClient.object_id(id) do
+      result = Mongo.delete_one(:mongo, @coll, %{"_id" => oid, "couple_id" => couple_id})
 
-    if couple_id do
-      Phoenix.PubSub.broadcast(
-        Alma.PubSub,
-        "couple:#{couple_id}",
-        {:special_date_deleted, %{"id" => id}}
-      )
+      if couple_id do
+        Phoenix.PubSub.broadcast(
+          Alma.PubSub,
+          "couple:#{couple_id}",
+          {:special_date_deleted, %{"id" => id}}
+        )
+      end
+
+      result
+    else
+      :error -> {:error, :not_found}
     end
-
-    result
   end
 
   defp parse_dt(nil), do: DateTime.utc_now()

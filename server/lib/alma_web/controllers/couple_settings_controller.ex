@@ -71,9 +71,33 @@ defmodule AlmaWeb.CoupleSettingsController do
     end
   end
 
+  # Four digits is 10.000 combinations — cheap to walk through unless trying
+  # costs something. Five wrong answers freeze the couple's PIN for a while;
+  # a correct one clears the counter, so the two of them never notice.
+  @pin_max_attempts 5
+  @pin_window_seconds 300
+
   def verify_pin(conn, %{"pin" => pin}) when is_binary(pin) do
-    hash = pin_hash(conn)
-    json(conn, %{ok: is_binary(hash) and Bcrypt.verify_pass(pin, hash)})
+    user = conn.assigns.current_user
+    key = {:pin, user["couple_id"] || user["_id"]}
+
+    case Alma.Throttle.check(key, @pin_max_attempts, @pin_window_seconds) do
+      {:blocked, seconds} ->
+        conn
+        |> put_status(:too_many_requests)
+        |> json(%{ok: false, error: "too_many_attempts", retry_after: seconds})
+
+      :ok ->
+        hash = pin_hash(conn)
+
+        if is_binary(hash) and Bcrypt.verify_pass(pin, hash) do
+          Alma.Throttle.reset(key)
+          json(conn, %{ok: true})
+        else
+          Alma.Throttle.fail(key)
+          json(conn, %{ok: false})
+        end
+    end
   end
 
   defp pin_hash(conn) do

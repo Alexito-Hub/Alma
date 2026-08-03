@@ -23,6 +23,14 @@ final privatePostsProvider = StreamProvider.autoDispose<List<PostLocal>>(
   (ref) => ref.watch(postRepositoryProvider).watchPrivate(),
 );
 
+/// Read/write API for feed posts.
+///
+/// **The Feed has no screen any more** — the Diary absorbed it, and its
+/// composer and viewers were removed. What is kept on purpose is the *data*:
+/// `Hydrator` still pulls posts and `SyncWorker` still pushes edits and
+/// tombstones, so the couple's existing moments on the server stay reconciled
+/// with this device instead of being orphaned. Nothing here is wired to UI
+/// today; it is what a future viewer would build on.
 class PostRepository {
   Isar get _isar => IsarService.instance.db;
 

@@ -52,69 +52,83 @@ class DashboardScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 10),
-                      NeoBox(
-                        color: Neo.yellow,
-                        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                        shadowOffset: Neo.shadowBtn,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _greeting().toUpperCase(),
-                                    style: txt.labelSmall?.copyWith(
-                                      letterSpacing: 1.5,
+                      NeoReveal(
+                        child: NeoBox(
+                          color: Neo.yellow,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                          shadowOffset: Neo.shadowBtn,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _greeting().toUpperCase(),
+                                      style: txt.labelSmall?.copyWith(
+                                        letterSpacing: 1.5,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    (me?.prettyName ?? 'amor'),
-                                    style: txt.titleLarge,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      (me?.prettyName ?? 'amor'),
+                                      style: txt.titleLarge,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            const NeoIconBadge(
-                              icon: Icons.favorite_rounded,
-                              color: Neo.white,
-                              size: 44,
-                              iconSize: 22,
-                            ),
-                          ],
+                              const NeoIconBadge(
+                                icon: Icons.favorite_rounded,
+                                color: Neo.white,
+                                size: 44,
+                                iconSize: 22,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const Spacer(flex: 2),
-                      DaysTogetherCounter(since: since),
+                      NeoReveal(
+                        delay: const Duration(milliseconds: 90),
+                        child: DaysTogetherCounter(since: since),
+                      ),
                       const SizedBox(height: 18),
-                      StatusBox(
-                        text: partnerStatus?.text,
-                        updatedAt: partnerStatus?.updatedAt,
-                        partnerLabel: (partner?.prettyName ?? 'pareja'),
-                        imagePath: partnerStatus?.imagePath,
-                        imageUrl: partnerStatus?.remoteImageUrl,
+                      NeoReveal(
+                        delay: const Duration(milliseconds: 180),
+                        child: StatusBox(
+                          text: partnerStatus?.text,
+                          updatedAt: partnerStatus?.updatedAt,
+                          partnerLabel: (partner?.prettyName ?? 'pareja'),
+                          imagePath: partnerStatus?.imagePath,
+                          imageUrl: partnerStatus?.remoteImageUrl,
+                        ),
                       ),
                       if (myStatus != null && myStatus.text.isNotEmpty) ...[
                         const SizedBox(height: 10),
-                        _MyStatusChip(
-                          text: myStatus.text,
-                          at: myStatus.updatedAt,
+                        NeoReveal(
+                          delay: const Duration(milliseconds: 240),
+                          child: _MyStatusChip(
+                            text: myStatus.text,
+                            at: myStatus.updatedAt,
+                          ),
                         ),
                       ],
                       const Spacer(flex: 3),
-                      NeoBox(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                        shadowOffset: Neo.shadowBtn,
-                        child: CoupleBondGraphic(
-                          leftAvatarUrl: myAvatar,
-                          rightAvatarUrl: partnerAvatar,
-                          leftLabel: (me?.prettyName ?? 'amor'),
-                          rightLabel: (partner?.prettyName ?? 'pareja'),
+                      NeoReveal(
+                        delay: const Duration(milliseconds: 300),
+                        child: NeoBox(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          shadowOffset: Neo.shadowBtn,
+                          child: CoupleBondGraphic(
+                            leftAvatarUrl: myAvatar,
+                            rightAvatarUrl: partnerAvatar,
+                            leftLabel: (me?.prettyName ?? 'amor'),
+                            rightLabel: (partner?.prettyName ?? 'pareja'),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),

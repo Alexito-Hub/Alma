@@ -11,6 +11,7 @@ import 'package:workmanager/workmanager.dart';
 import 'core/router/app_shell.dart';
 import 'core/theme/app_theme.dart';
 import 'data/local/isar_service.dart';
+import 'data/remote/token_storage.dart';
 import 'data/sync/sync_worker.dart';
 import 'presentation/screens/auth/auth_gate.dart';
 
@@ -31,6 +32,12 @@ Future<void> main() async {
   await initializeDateFormatting('es');
   await IsarService.instance.open();
 
+  // Warm the in-memory token before the first frame. Media widgets read it
+  // synchronously to authenticate against `/media`, so a photo built before
+  // the first API call would otherwise render as broken once and stay cached
+  // that way.
+  await TokenStorage.read();
+
   // workmanager only supports Android/iOS. On desktop the app still
   // syncs while in the foreground via SyncWorker called from the UI.
   final supportsBackgroundSync =
@@ -42,7 +49,9 @@ Future<void> main() async {
       SyncWorker.taskName,
       frequency: const Duration(minutes: 15),
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      // `update` so an app update actually refreshes the scheduled work
+      // instead of leaving whatever an older install registered.
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
     );
   }
 

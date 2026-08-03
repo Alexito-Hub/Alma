@@ -2,15 +2,21 @@ services:
   app:
     build: .
     container_name: alma_server
+    restart: unless-stopped
     ports:
       - "4000:4000"
     volumes:
+      # Source is mounted so the deploy flow stays `scp server/lib` +
+      # `docker restart alma_server`: `mix phx.server` compiles changed files
+      # on boot in any env, prod included.
       - .:/app
       - /app/_build
       - /app/deps
     env_file: .env
     environment:
-      PHX_SERVER: "true"
+      # Must match the image; `mix` reads it at boot, and a mismatch would
+      # silently run the dev config against the prod build.
+      MIX_ENV: prod
     dns:
       - 8.8.8.8
       - 8.8.4.4

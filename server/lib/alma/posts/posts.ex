@@ -52,7 +52,7 @@ defmodule Alma.Posts do
 
   @doc "Author-only text edit (title/description/tags). Broadcasts to the couple."
   def update(user, id, attrs) do
-    with {:ok, oid} <- object_id(id),
+    with {:ok, oid} <- MongoClient.object_id(id),
          {:ok, %Mongo.UpdateResult{matched_count: 1}} <-
            Mongo.update_one(
              :mongo,
@@ -78,12 +78,19 @@ defmodule Alma.Posts do
     end
   end
 
-  @doc "Author-only delete; removes the post's comments too. Broadcasts to the couple."
+  @doc """
+  Author-only delete; removes the post's comments and its media files too.
+  Broadcasts to the couple.
+  """
   def delete(user, id) do
-    with {:ok, oid} <- object_id(id),
+    # Read the doc first: once it's gone we can't tell which files were its.
+    doc = MongoClient.find_one(@coll, %{"_id" => id})
+
+    with {:ok, oid} <- MongoClient.object_id(id),
          {:ok, %Mongo.DeleteResult{deleted_count: 1}} <-
            Mongo.delete_one(:mongo, @coll, %{"_id" => oid, "author_id" => user["_id"]}) do
       Mongo.delete_many(:mongo, @comments, %{"post_id" => id})
+      if doc, do: Alma.Media.delete_urls(doc["media_urls"])
 
       if cid = user["couple_id"] do
         Phoenix.PubSub.broadcast(Alma.PubSub, "couple:#{cid}", {:post_deleted, %{"id" => id}})
@@ -93,12 +100,6 @@ defmodule Alma.Posts do
     else
       _ -> {:error, :not_found}
     end
-  end
-
-  defp object_id(id) do
-    {:ok, BSON.ObjectId.decode!(id)}
-  rescue
-    _ -> {:error, :invalid_id}
   end
 
   def get(id), do: MongoClient.find_one(@coll, %{"_id" => id})
@@ -113,9 +114,12 @@ defmodule Alma.Posts do
     }
 
     with {:ok, id} <- MongoClient.insert(@comments, doc) do
-      Mongo.update_one(:mongo, @coll, %{"_id" => BSON.ObjectId.decode!(post_id)}, %{
-        "$inc" => %{"comment_count" => 1}
-      })
+      # Best-effort counter; a bad post id shouldn't take the insert down.
+      with {:ok, oid} <- MongoClient.object_id(post_id) do
+        Mongo.update_one(:mongo, @coll, %{"_id" => oid}, %{
+          "$inc" => %{"comment_count" => 1}
+        })
+      end
 
       {:ok, Map.put(doc, "_id", id) |> public_comment()}
     end

@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme/neo.dart';
+import '../../data/remote/media_headers.dart';
 
 /// Two framed avatars joined by a solid black bond, with a heart block that
 /// beats in the middle. Pure neo-brutalism: hard strokes, flat fills, block
@@ -151,6 +152,7 @@ class _Avatar extends StatelessWidget {
       child: url != null && url!.isNotEmpty
           ? CachedNetworkImage(
               imageUrl: url!,
+              httpHeaders: mediaHeaders(),
               fit: BoxFit.cover,
               width: 72,
               height: 72,

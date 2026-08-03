@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,20 +8,35 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:video_player/video_player.dart';
 
-import '../../../core/config/env.dart';
 import '../../../core/theme/neo.dart';
 import '../../../data/device/media_tools.dart';
 import '../../../data/device/voice_recorder.dart';
 import '../../../data/local/diary_prefs.dart';
+import '../../../data/local/isar/comment_local.dart';
 import '../../../data/local/isar/note_local.dart';
 import '../../../data/local/isar/special_date_local.dart';
+import '../../../data/remote/api_client.dart';
+import '../../../data/remote/endpoints.dart';
+import '../../../data/remote/media_headers.dart';
+import '../../../data/remote/pin_gate.dart';
 import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/comment_repository.dart';
 import '../../../data/repositories/note_repository.dart';
 import '../../../data/repositories/special_date_repository.dart';
 import '../../../data/sync/sync_worker.dart';
+import '../../../domain/entities/user.dart';
 import '../../widgets/neo_confirm_dialog.dart';
+import '../../widgets/pin_dialog.dart';
+import '../../widgets/post_media.dart';
+import 'share_card_screen.dart';
+
+part 'diary_calendar.dart';
+part 'diary_cards.dart';
+part 'diary_comments.dart';
+part 'diary_composer.dart';
+part 'diary_dialogs.dart';
+part 'private_diary_screen.dart';
 
 // Mood stays as emoji (the one place emoji reads best). Everything else uses
 // neo icons keyed by a stable string.
@@ -60,17 +74,38 @@ class EntryDraft {
     this.mood,
     this.link,
     this.imagePaths = const [],
-    this.videoPath,
+    this.videoPaths = const [],
     this.audioPath,
     this.geo,
+    this.private = false,
   });
   final String body;
   final String? mood;
   final String? link;
   final List<String> imagePaths;
-  final String? videoPath;
+  final List<String> videoPaths;
   final String? audioPath;
   final GeoTag? geo;
+  final bool private;
+}
+
+/// Everything an entry shows in its carousel: photos first, then clips.
+/// Local files win while the entry is still queued; otherwise the server
+/// copies. The legacy single-video fields are folded in for old entries.
+List<String> entryMediaSources(NoteLocal n) {
+  final local = <String>[
+    ...n.imagePaths,
+    ...n.videoPaths,
+    if (n.videoPath != null) n.videoPath!,
+  ];
+  if (local.isNotEmpty) return local.toSet().toList();
+
+  final remote = <String>{
+    ...n.remoteImageUrls.map(absoluteMediaUrl),
+    ...n.remoteVideoUrls.map(absoluteMediaUrl),
+    if (n.remoteVideoUrl != null) absoluteMediaUrl(n.remoteVideoUrl!),
+  };
+  return remote.toList();
 }
 
 /// The Diary as a calendar of rich "Momentos": mood, photos, voice notes, short
@@ -88,6 +123,11 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
 
   /// Calendar starts collapsed; the preference is remembered across sessions.
   bool _calendarOpen = false;
+
+  /// How the diary is being looked at: 0 calendar, 1 continuous list,
+  /// 2 gallery grid. The Feed used to be the only place with a grid; those
+  /// ways of browsing belong here, with the memories themselves.
+  int _view = 0;
   DateTime _focusedDay = DateTime.now();
   DateTime _selectedDay = DateTime.now();
 
@@ -130,11 +170,12 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
             mood: d.mood,
             link: d.link,
             imagePaths: d.imagePaths,
-            videoPath: d.videoPath,
+            videoPaths: d.videoPaths,
             audioPath: d.audioPath,
             latitude: d.geo?.latitude,
             longitude: d.geo?.longitude,
             placeLabel: d.geo?.label,
+            private: d.private,
           );
       if (mounted) setState(() => _composerOpen = false);
     } finally {
@@ -154,6 +195,8 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
           authorId: me.id,
           emoji: key.isEmpty ? null : key,
         );
+    // A reaction is for the other person — push it now, not in 15 minutes.
+    unawaited(runForegroundSync());
   }
 
   Future<void> _addSpecialDate() async {
@@ -226,6 +269,182 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
     unawaited(runForegroundSync());
   }
 
+  Future<void> _openComments(NoteLocal n) async {
+    final remoteId = n.remoteId;
+    if (remoteId == null) {
+      _snack('Esta entrada aun se esta sincronizando');
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CommentsSheet(noteId: remoteId),
+    );
+  }
+
+  /// PIN gate: create the couple PIN on first use, verify afterwards, then
+  /// open the private diary. The unlock lasts for this app session.
+  Future<void> _openPrivate() async {
+    final gate = PinGate.instance;
+    if (!gate.unlocked) {
+      bool isSet;
+      try {
+        isSet = await gate.isSet();
+      } catch (_) {
+        _snack('Necesitas conexión para abrir el diario privado');
+        return;
+      }
+      if (!mounted) return;
+      final pin = await showDialog<String>(
+        context: context,
+        builder: (_) => PinDialog(create: !isSet),
+      );
+      if (pin == null) return;
+      try {
+        if (isSet) {
+          final check = await gate.verify(pin);
+          if (!check.ok) {
+            _snack(
+              check.throttled
+                  ? 'Demasiados intentos. Inténtalo en '
+                        '${_minutes(check.retryAfter!)}.'
+                  : 'PIN incorrecto',
+            );
+            return;
+          }
+        } else {
+          await gate.setPin(pin);
+        }
+      } catch (_) {
+        _snack('No se pudo validar el PIN');
+        return;
+      }
+      gate.unlocked = true;
+    }
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const PrivateDiaryScreen()));
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// "un momento" / "3 minutos" — a lockout in seconds reads like a bug.
+  String _minutes(int seconds) {
+    final m = (seconds / 60).ceil();
+    if (m <= 1) return 'un momento';
+    return '$m minutos';
+  }
+
+  Widget _entryCard(NoteLocal n, User? me, User? partner) {
+    final mine = n.authorId == me?.id;
+    final author = mine
+        ? (me?.prettyName ?? 'tú')
+        : (partner?.prettyName ?? 'pareja');
+
+    return _MomentoCard(
+      note: n,
+      mine: mine,
+      author: author,
+      onReact: () => _react(n),
+      onOpenLink: () => _copyLink(context, n.link),
+      onComment: () => _openComments(n),
+      onEdit: mine ? () => _editEntry(n) : null,
+      onShare: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ShareCardScreen(note: n, author: author),
+        ),
+      ),
+      onDelete: mine ? () => _confirmDeleteEntry(n) : null,
+    );
+  }
+
+  /// Every entry, newest first — the diary read straight through instead of
+  /// one day at a time.
+  Widget _listView(List<NoteLocal> notes, User? me, User? partner) {
+    if (notes.isEmpty) return const _EmptyDay();
+    final ordered = [...notes]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
+      itemCount: ordered.length,
+      itemBuilder: (_, i) {
+        final n = ordered[i];
+        return Padding(
+          key: ValueKey('feed-note-${n.isarId}'),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _entryCard(n, me, partner),
+        );
+      },
+    );
+  }
+
+  /// Every photo and clip the diary holds, as a grid of thumbnails. Tapping
+  /// one opens the full-screen viewer positioned on it.
+  Widget _galleryView(List<NoteLocal> notes) {
+    final ordered = [...notes]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final sources = <String>[for (final n in ordered) ...entryMediaSources(n)];
+
+    if (sources.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Text(
+            'Todavía no hay fotos ni vídeos en el diario.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: sources.length,
+      itemBuilder: (_, i) {
+        final src = sources[i];
+        return GestureDetector(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  MediaViewerScreen(sources: sources, initialIndex: i),
+            ),
+          ),
+          child: NeoFrame(
+            shadowOffset: const Offset(3, 3),
+            child: MediaTools.isVideo(src)
+                ? Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      VideoPosterImage(src: src),
+                      const Center(
+                        child: Icon(
+                          Icons.play_circle_fill_rounded,
+                          color: Neo.white,
+                          size: 26,
+                        ),
+                      ),
+                    ],
+                  )
+                : postMediaTile(src),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(currentUserProvider);
@@ -276,124 +495,134 @@ class _DiaryScreenState extends ConsumerState<DiaryScreen> {
                   const SizedBox(width: 12),
                   Text('Diario', style: txt.titleLarge),
                   const Spacer(),
-                  NeoButton(
-                    label: 'Hoy',
-                    color: Neo.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 9,
+                  if (_view == 0) ...[
+                    NeoButton(
+                      label: 'Hoy',
+                      color: Neo.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      shadowOffset: Neo.shadowSm,
+                      onPressed: () => setState(() {
+                        _focusedDay = DateTime.now();
+                        _selectedDay = DateTime.now();
+                      }),
                     ),
-                    shadowOffset: Neo.shadowSm,
-                    onPressed: () => setState(() {
-                      _focusedDay = DateTime.now();
-                      _selectedDay = DateTime.now();
-                    }),
+                    const SizedBox(width: 8),
+                  ],
+                  _ViewSwitch(
+                    index: _view,
+                    onChanged: (i) => setState(() => _view = i),
+                  ),
+                  const SizedBox(width: 8),
+                  NeoIconButton(
+                    icon: Icons.lock_outline_rounded,
+                    tooltip: 'Diario privado',
+                    color: Neo.rose,
+                    size: 40,
+                    iconSize: 19,
+                    onPressed: _openPrivate,
                   ),
                 ],
               ),
             ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
-                children: [
-                  _CalendarToggle(open: _calendarOpen, onTap: _toggleCalendar),
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment.topCenter,
-                    child: !_calendarOpen
-                        ? const SizedBox(width: double.infinity)
-                        : Padding(
-                            padding: const EdgeInsets.only(top: 14),
-                            child: _CalendarCard(
-                              focusedDay: _focusedDay,
-                              selectedDay: _selectedDay,
-                              events: events,
-                              specials: specials,
-                              dayKey: _key,
-                              matchesDay: _matchesDay,
-                              onDaySelected: (selected, focused) =>
-                                  setState(() {
-                                    _selectedDay = selected;
-                                    _focusedDay = focused;
-                                  }),
-                              onPageChanged: (focused) => _focusedDay = focused,
-                            ),
-                          ),
-                  ),
-                  const SizedBox(height: 20),
-                  if (memories.isNotEmpty) ...[
-                    _Capsule(memories: memories),
-                    const SizedBox(height: 18),
-                  ],
-                  for (final s in daySpecials)
-                    Padding(
-                      // Keyed by row id: without it Flutter matches children by
-                      // position, so deleting one leaves the next card wearing
-                      // the previous one's state.
-                      key: ValueKey('special-${s.isarId}'),
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _SpecialDateCard(
-                        special: s,
-                        onDelete: () => _confirmDeleteSpecial(s),
-                      ),
+              child: switch (_view) {
+                1 => _listView(notes, me, partner),
+                2 => _galleryView(notes),
+                _ => ListView(
+                  padding: const EdgeInsets.fromLTRB(22, 6, 22, 24),
+                  children: [
+                    _CalendarToggle(
+                      open: _calendarOpen,
+                      onTap: _toggleCalendar,
                     ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Neo.yellow,
-                          border: Neo.borderThin,
-                          borderRadius: Neo.cornerSm,
-                        ),
-                        child: Text(
-                          _dayLabel(_selectedDay),
-                          style: txt.labelMedium?.copyWith(letterSpacing: 1),
-                        ),
-                      ),
-                      const Spacer(),
-                      NeoIconButton(
-                        icon: Icons.star_rounded,
-                        tooltip: 'Marcar fecha especial',
-                        color: Neo.lilac,
-                        size: 40,
-                        iconSize: 20,
-                        onPressed: _addSpecialDate,
-                      ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      alignment: Alignment.topCenter,
+                      child: !_calendarOpen
+                          ? const SizedBox(width: double.infinity)
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 14),
+                              child: _CalendarCard(
+                                focusedDay: _focusedDay,
+                                selectedDay: _selectedDay,
+                                events: events,
+                                specials: specials,
+                                dayKey: _key,
+                                matchesDay: _matchesDay,
+                                onDaySelected: (selected, focused) =>
+                                    setState(() {
+                                      _selectedDay = selected;
+                                      _focusedDay = focused;
+                                    }),
+                                onPageChanged: (focused) =>
+                                    _focusedDay = focused,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (memories.isNotEmpty) ...[
+                      _Capsule(memories: memories),
+                      const SizedBox(height: 18),
                     ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (dayEntries.isEmpty)
-                    const _EmptyDay()
-                  else
-                    for (final n in dayEntries)
+                    for (final s in daySpecials)
                       Padding(
-                        // See the note above: keys keep each entry's photos and
-                        // video bound to the entry, not to its slot in the list.
-                        key: ValueKey('note-${n.isarId}'),
+                        // Keyed by row id: without it Flutter matches children by
+                        // position, so deleting one leaves the next card wearing
+                        // the previous one's state.
+                        key: ValueKey('special-${s.isarId}'),
                         padding: const EdgeInsets.only(bottom: 12),
-                        child: _MomentoCard(
-                          note: n,
-                          mine: n.authorId == me?.id,
-                          author: n.authorId == me?.id
-                              ? (me?.prettyName ?? 'tú')
-                              : (partner?.prettyName ?? 'pareja'),
-                          onReact: () => _react(n),
-                          onOpenLink: () => _copyLink(context, n.link),
-                          onEdit: n.authorId == me?.id
-                              ? () => _editEntry(n)
-                              : null,
-                          onDelete: n.authorId == me?.id
-                              ? () => _confirmDeleteEntry(n)
-                              : null,
+                        child: _SpecialDateCard(
+                          special: s,
+                          onDelete: () => _confirmDeleteSpecial(s),
                         ),
                       ),
-                ],
-              ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Neo.yellow,
+                            border: Neo.borderThin,
+                            borderRadius: Neo.cornerSm,
+                          ),
+                          child: Text(
+                            _dayLabel(_selectedDay),
+                            style: txt.labelMedium?.copyWith(letterSpacing: 1),
+                          ),
+                        ),
+                        const Spacer(),
+                        NeoIconButton(
+                          icon: Icons.star_rounded,
+                          tooltip: 'Marcar fecha especial',
+                          color: Neo.lilac,
+                          size: 40,
+                          iconSize: 20,
+                          onPressed: _addSpecialDate,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (dayEntries.isEmpty)
+                      const _EmptyDay()
+                    else
+                      for (final n in dayEntries)
+                        Padding(
+                          // Keys keep each entry's photos and video bound to the
+                          // entry, not to its slot in the list.
+                          key: ValueKey('note-${n.isarId}'),
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _entryCard(n, me, partner),
+                        ),
+                  ],
+                ),
+              },
             ),
             AnimatedSize(
               duration: const Duration(milliseconds: 220),
@@ -517,1550 +746,4 @@ Future<String?> _pickReaction(BuildContext context, String? current) {
       ),
     ),
   );
-}
-
-// ─── calendar ────────────────────────────────────────────────────────────────
-
-/// Header row that expands/collapses the calendar (collapsed by default).
-class _CalendarToggle extends StatelessWidget {
-  const _CalendarToggle({required this.open, required this.onTap});
-  final bool open;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    return NeoBox(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      shadowOffset: Neo.shadowSm,
-      child: Row(
-        children: [
-          const Icon(Icons.calendar_month_rounded, size: 18, color: Neo.ink),
-          const SizedBox(width: 8),
-          Text('Calendario', style: txt.labelLarge),
-          const Spacer(),
-          Icon(
-            open
-                ? Icons.keyboard_arrow_up_rounded
-                : Icons.keyboard_arrow_down_rounded,
-            size: 22,
-            color: Neo.ink,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CalendarCard extends StatelessWidget {
-  const _CalendarCard({
-    required this.focusedDay,
-    required this.selectedDay,
-    required this.events,
-    required this.specials,
-    required this.dayKey,
-    required this.matchesDay,
-    required this.onDaySelected,
-    required this.onPageChanged,
-  });
-
-  final DateTime focusedDay;
-  final DateTime selectedDay;
-  final Map<DateTime, List<NoteLocal>> events;
-  final List<SpecialDateLocal> specials;
-  final DateTime Function(DateTime) dayKey;
-  final bool Function(SpecialDateLocal, DateTime) matchesDay;
-  final void Function(DateTime selected, DateTime focused) onDaySelected;
-  final void Function(DateTime focused) onPageChanged;
-
-  bool _isSpecial(DateTime day) => specials.any((s) => matchesDay(s, day));
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    return NeoBox(
-      padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
-      shadowOffset: Neo.shadowBtn,
-      child: TableCalendar<NoteLocal>(
-        locale: 'es',
-        firstDay: DateTime.utc(2015),
-        lastDay: DateTime.utc(2035, 12, 31),
-        focusedDay: focusedDay,
-        currentDay: DateTime.now(),
-        startingDayOfWeek: StartingDayOfWeek.monday,
-        availableCalendarFormats: const {CalendarFormat.month: 'Mes'},
-        selectedDayPredicate: (d) => isSameDay(selectedDay, d),
-        eventLoader: (day) => events[dayKey(day)] ?? const [],
-        onDaySelected: onDaySelected,
-        onPageChanged: onPageChanged,
-        rowHeight: 46,
-        daysOfWeekHeight: 22,
-        headerStyle: HeaderStyle(
-          formatButtonVisible: false,
-          titleCentered: true,
-          headerPadding: const EdgeInsets.symmetric(vertical: 6),
-          titleTextStyle:
-              txt.titleMedium ?? const TextStyle(fontWeight: FontWeight.w800),
-          leftChevronIcon: const Icon(
-            Icons.chevron_left_rounded,
-            color: Neo.ink,
-          ),
-          rightChevronIcon: const Icon(
-            Icons.chevron_right_rounded,
-            color: Neo.ink,
-          ),
-        ),
-        daysOfWeekStyle: const DaysOfWeekStyle(
-          weekdayStyle: TextStyle(
-            color: Neo.ink,
-            fontWeight: FontWeight.w800,
-            fontSize: 11,
-          ),
-          weekendStyle: TextStyle(
-            color: Neo.ink,
-            fontWeight: FontWeight.w800,
-            fontSize: 11,
-          ),
-        ),
-        calendarBuilders: CalendarBuilders<NoteLocal>(
-          defaultBuilder: (context, day, _) => _cell(day),
-          outsideBuilder: (context, day, _) => _cell(day, outside: true),
-          disabledBuilder: (context, day, _) => _cell(day, outside: true),
-          todayBuilder: (context, day, _) =>
-              _cell(day, fill: Neo.yellow, heavy: true),
-          selectedBuilder: (context, day, _) =>
-              _cell(day, fill: Neo.pink, heavy: true),
-          markerBuilder: (context, day, dayEvents) {
-            final special = _isSpecial(day);
-            final hasEntries = dayEvents.isNotEmpty;
-            if (!special && !hasEntries) return const SizedBox.shrink();
-            return Positioned(
-              bottom: 4,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (hasEntries)
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Neo.ink,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  if (special)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 2),
-                      child: Icon(Icons.star_rounded, size: 9, color: Neo.ink),
-                    ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _cell(
-    DateTime day, {
-    Color? fill,
-    bool outside = false,
-    bool heavy = false,
-  }) {
-    return Container(
-      margin: const EdgeInsets.all(3),
-      alignment: Alignment.center,
-      decoration: fill == null
-          ? null
-          : BoxDecoration(
-              color: fill,
-              border: Neo.borderThin,
-              borderRadius: Neo.cornerSm,
-            ),
-      child: Text(
-        '${day.day}',
-        style: TextStyle(
-          color: outside ? Neo.ink.withValues(alpha: .3) : Neo.ink,
-          fontWeight: heavy ? FontWeight.w900 : FontWeight.w700,
-          fontSize: 14,
-        ),
-      ),
-    );
-  }
-}
-
-// ─── entry card ──────────────────────────────────────────────────────────────
-
-class _MomentoCard extends StatelessWidget {
-  const _MomentoCard({
-    required this.note,
-    required this.mine,
-    required this.author,
-    required this.onReact,
-    required this.onOpenLink,
-    this.onEdit,
-    this.onDelete,
-  });
-
-  final NoteLocal note;
-  final bool mine;
-  final String author;
-  final VoidCallback onReact;
-  final VoidCallback onOpenLink;
-  final VoidCallback? onEdit;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    final time = TimeOfDay.fromDateTime(note.createdAt).format(context);
-    final accent = mine ? Neo.pink : Neo.lilac;
-
-    return NeoBox(
-      width: double.infinity,
-      padding: EdgeInsets.zero,
-      shadowOffset: Neo.shadowBtn,
-      clip: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: accent,
-              border: const Border(
-                bottom: BorderSide(color: Neo.ink, width: Neo.strokeThin),
-              ),
-            ),
-            child: Row(
-              children: [
-                if (note.mood != null) ...[
-                  Text(note.mood!, style: const TextStyle(fontSize: 16)),
-                  const SizedBox(width: 6),
-                ],
-                Icon(
-                  mine ? Icons.person_rounded : Icons.favorite_rounded,
-                  size: 15,
-                  color: Neo.ink,
-                ),
-                const SizedBox(width: 6),
-                Text(author, style: txt.labelLarge?.copyWith(color: Neo.ink)),
-                const Spacer(),
-                if (onEdit != null)
-                  _HeaderAction(icon: Icons.edit_outlined, onTap: onEdit!),
-                if (onDelete != null)
-                  _HeaderAction(
-                    icon: Icons.delete_outline_rounded,
-                    onTap: onDelete!,
-                  ),
-                Text(
-                  time,
-                  style: txt.labelSmall?.copyWith(
-                    color: Neo.ink.withValues(alpha: .7),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (note.imagePaths.isNotEmpty)
-            _PhotoCarousel(
-              key: ValueKey('photos-${note.isarId}'),
-              paths: note.imagePaths,
-            )
-          else if (note.remoteImageUrls.isNotEmpty)
-            _PhotoCarousel(
-              key: ValueKey('photos-remote-${note.isarId}'),
-              paths: note.remoteImageUrls.map(_withBaseUrl).toList(),
-            ),
-          if (note.videoPath != null)
-            _VideoTile(
-              key: ValueKey('video-${note.isarId}'),
-              path: note.videoPath!,
-            )
-          else if (note.remoteVideoUrl != null)
-            _VideoTile(
-              key: ValueKey('video-remote-${note.isarId}'),
-              path: _withBaseUrl(note.remoteVideoUrl!),
-              remote: true,
-            ),
-          if (note.audioPath != null)
-            _AudioTile(
-              key: ValueKey('audio-${note.isarId}'),
-              src: note.audioPath!,
-            )
-          else if (note.remoteAudioUrl != null)
-            _AudioTile(
-              key: ValueKey('audio-remote-${note.isarId}'),
-              src: _withBaseUrl(note.remoteAudioUrl!),
-              remote: true,
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-            child: SelectableText(
-              note.body,
-              style: txt.bodyLarge?.copyWith(
-                color: Neo.ink,
-                height: 1.5,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          if (note.placeLabel != null || note.latitude != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-              child: _Chip(
-                icon: Icons.place_rounded,
-                color: Neo.mint,
-                label:
-                    note.placeLabel ??
-                    '${note.latitude!.toStringAsFixed(3)}, ${note.longitude!.toStringAsFixed(3)}',
-              ),
-            ),
-          if (note.link != null && note.link!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-              child: GestureDetector(
-                onTap: onOpenLink,
-                child: _Chip(
-                  icon: Icons.link_rounded,
-                  color: Neo.sky,
-                  label: note.link!,
-                  trailing: Icons.copy_rounded,
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-            child: Row(
-              children: [
-                if (note.reactionEmoji != null)
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Neo.rose,
-                      border: Neo.borderThin,
-                      borderRadius: Neo.cornerSm,
-                    ),
-                    child: Icon(
-                      _iconFor(
-                        note.reactionEmoji,
-                        _reactionIcons,
-                        Icons.favorite_rounded,
-                      ),
-                      size: 16,
-                      color: Neo.ink,
-                    ),
-                  ),
-                const Spacer(),
-                if (!mine)
-                  NeoButton(
-                    label: note.reactionEmoji == null
-                        ? 'Reaccionar'
-                        : 'Cambiar',
-                    icon: Icons.add_reaction_outlined,
-                    color: Neo.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    shadowOffset: Neo.shadowSm,
-                    textStyle: txt.labelSmall,
-                    onPressed: onReact,
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Flat bordered chip: icon + label (+ optional trailing icon).
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.icon,
-    required this.color,
-    required this.label,
-    this.trailing,
-  });
-  final IconData icon;
-  final Color color;
-  final String label;
-  final IconData? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: color,
-        border: Neo.borderThin,
-        borderRadius: Neo.cornerSm,
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: Neo.ink),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: txt.labelSmall?.copyWith(color: Neo.ink),
-            ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: 6),
-            Icon(trailing, size: 14, color: Neo.ink),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Resolve a stored media reference to something displayable: a full remote
-/// URL (already absolute, or relative to the API host) is left/made absolute;
-/// a local file path is returned untouched.
-String _withBaseUrl(String u) =>
-    u.startsWith('http') ? u : '${Env.apiBaseUrl}$u';
-
-class _PhotoCarousel extends StatefulWidget {
-  const _PhotoCarousel({super.key, required this.paths});
-  final List<String> paths;
-
-  @override
-  State<_PhotoCarousel> createState() => _PhotoCarouselState();
-}
-
-class _PhotoCarouselState extends State<_PhotoCarousel> {
-  final _pc = PageController();
-  int _page = 0;
-
-  @override
-  void dispose() {
-    _pc.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Neo.ink, width: Neo.strokeThin),
-        ),
-      ),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 220,
-            child: PageView(
-              controller: _pc,
-              onPageChanged: (i) => setState(() => _page = i),
-              children: [
-                for (final p in widget.paths)
-                  if (p.startsWith('http'))
-                    CachedNetworkImage(
-                      imageUrl: p,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, _, _) =>
-                          const ColoredBox(color: Color(0xFFF3E6CF)),
-                    )
-                  else
-                    Image.file(
-                      File(p),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
-                          const ColoredBox(color: Color(0xFFF3E6CF)),
-                    ),
-              ],
-            ),
-          ),
-          if (widget.paths.length > 1)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  for (var i = 0; i < widget.paths.length; i++)
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      decoration: BoxDecoration(
-                        color: i == _page
-                            ? Neo.ink
-                            : Neo.ink.withValues(alpha: .25),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Short video: shows a tap-to-play cover, then plays inline (no autoplay).
-/// Voice note playback: a neo bar with play/pause and a progress line.
-class _AudioTile extends StatefulWidget {
-  const _AudioTile({super.key, required this.src, this.remote = false});
-  final String src;
-  final bool remote;
-
-  @override
-  State<_AudioTile> createState() => _AudioTileState();
-}
-
-class _AudioTileState extends State<_AudioTile> {
-  final _player = AudioPlayer();
-  bool _loaded = false;
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _player.dispose();
-    super.dispose();
-  }
-
-  Future<void> _toggle() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      if (!_loaded) {
-        // Loading on first tap keeps a screen full of entries cheap.
-        if (widget.remote) {
-          await _player.setUrl(widget.src);
-        } else {
-          await _player.setFilePath(widget.src);
-        }
-        _loaded = true;
-      }
-      if (_player.playing) {
-        await _player.pause();
-      } else {
-        if (_player.processingState == ProcessingState.completed) {
-          await _player.seek(Duration.zero);
-        }
-        unawaited(_player.play());
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo reproducir la nota de voz')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: const BoxDecoration(
-        color: Neo.coral,
-        border: Border(
-          bottom: BorderSide(color: Neo.ink, width: Neo.strokeThin),
-        ),
-      ),
-      child: StreamBuilder<Duration>(
-        stream: _player.positionStream,
-        builder: (context, snap) {
-          final total = _player.duration ?? Duration.zero;
-          final pos = snap.data ?? Duration.zero;
-          final progress = (total.inMilliseconds == 0)
-              ? 0.0
-              : (pos.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0);
-
-          return Row(
-            children: [
-              GestureDetector(
-                onTap: _toggle,
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Neo.white,
-                    border: Neo.borderThin,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _player.playing
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    size: 22,
-                    color: Neo.ink,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Nota de voz', style: txt.labelSmall),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: Neo.white,
-                        valueColor: const AlwaysStoppedAnimation(Neo.ink),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                _ComposerState._clock(total == Duration.zero ? pos : total),
-                style: txt.labelSmall,
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _VideoTile extends StatefulWidget {
-  const _VideoTile({super.key, required this.path, this.remote = false});
-  final String path;
-  final bool remote;
-
-  @override
-  State<_VideoTile> createState() => _VideoTileState();
-}
-
-class _VideoTileState extends State<_VideoTile> {
-  VideoPlayerController? _controller;
-  bool _ready = false;
-
-  Future<void> _initAndPlay() async {
-    final c = widget.remote
-        ? VideoPlayerController.networkUrl(Uri.parse(widget.path))
-        : VideoPlayerController.file(File(widget.path));
-    _controller = c;
-    try {
-      await c.initialize();
-      if (!mounted) return;
-      setState(() => _ready = true);
-      await c.play();
-      c.addListener(() {
-        if (mounted) setState(() {});
-      });
-    } catch (_) {
-      // Playback unavailable (e.g. codec) — leave the cover in place.
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _controller;
-    return Container(
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Neo.ink, width: Neo.strokeThin),
-        ),
-      ),
-      child: AspectRatio(
-        aspectRatio: (_ready && c != null) ? c.value.aspectRatio : 16 / 9,
-        child: GestureDetector(
-          onTap: () {
-            if (!_ready) {
-              _initAndPlay();
-            } else if (c != null) {
-              c.value.isPlaying ? c.pause() : c.play();
-              setState(() {});
-            }
-          },
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (_ready && c != null)
-                // Cover-fit inside the tile: a portrait clip letterboxed
-                // against black was reading as a rendering bug.
-                FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: c.value.size.width,
-                    height: c.value.size.height,
-                    child: VideoPlayer(c),
-                  ),
-                )
-              else
-                const ColoredBox(color: Neo.lilac),
-              if (!_ready || (c != null && !c.value.isPlaying))
-                Center(
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: Neo.pink,
-                      border: Neo.border,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: Neo.ink,
-                      size: 30,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── capsule + special date ──────────────────────────────────────────────────
-
-class _Capsule extends StatelessWidget {
-  const _Capsule({required this.memories});
-  final List<NoteLocal> memories;
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    final now = DateTime.now();
-    return NeoBox(
-      width: double.infinity,
-      color: Neo.lilac,
-      shadowOffset: Neo.shadowBtn,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const NeoSectionLabel(
-            icon: Icons.history_rounded,
-            label: 'Un día como hoy',
-            color: Neo.white,
-          ),
-          const SizedBox(height: 10),
-          for (final m in memories)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Neo.white,
-                      border: Neo.borderThin,
-                      borderRadius: Neo.cornerSm,
-                    ),
-                    child: Text(
-                      _ago(now.year - m.createdAt.year),
-                      style: txt.labelSmall?.copyWith(color: Neo.ink),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      m.body,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: txt.bodySmall?.copyWith(
-                        color: Neo.ink,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  String _ago(int years) => years == 1 ? 'hace 1 año' : 'hace $years años';
-}
-
-class _SpecialDateCard extends StatelessWidget {
-  const _SpecialDateCard({required this.special, required this.onDelete});
-  final SpecialDateLocal special;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    return NeoBox(
-      width: double.infinity,
-      color: Neo.yellow,
-      padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-      shadowOffset: Neo.shadowBtn,
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: Neo.white,
-              border: Neo.borderThin,
-              borderRadius: Neo.cornerSm,
-            ),
-            child: Icon(
-              _iconFor(special.emoji, _specialIcons, Icons.star_rounded),
-              size: 22,
-              color: Neo.ink,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(special.title, style: txt.titleSmall),
-                if (special.recurring)
-                  Text(
-                    'Cada año',
-                    style: txt.labelSmall?.copyWith(
-                      color: Neo.ink.withValues(alpha: .6),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          NeoIconButton(
-            icon: Icons.delete_outline_rounded,
-            size: 38,
-            iconSize: 18,
-            onPressed: onDelete,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Compact tap target used in the entry-card header (edit / delete own entry).
-class _HeaderAction extends StatelessWidget {
-  const _HeaderAction({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 26,
-        height: 26,
-        margin: const EdgeInsets.only(right: 6),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Neo.white,
-          border: Neo.borderThin,
-          borderRadius: Neo.cornerSm,
-        ),
-        child: Icon(icon, size: 14, color: Neo.ink),
-      ),
-    );
-  }
-}
-
-/// Text-only edit of an own diary entry: body + mood. Media stays immutable.
-class _EditEntryDialog extends StatefulWidget {
-  const _EditEntryDialog({required this.note});
-  final NoteLocal note;
-
-  @override
-  State<_EditEntryDialog> createState() => _EditEntryDialogState();
-}
-
-class _EditEntryDialogState extends State<_EditEntryDialog> {
-  late final TextEditingController _body = TextEditingController(
-    text: widget.note.body,
-  );
-  String? _mood;
-
-  @override
-  void initState() {
-    super.initState();
-    _mood = widget.note.mood;
-  }
-
-  @override
-  void dispose() {
-    _body.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(28),
-      child: NeoBox(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Editar entrada',
-              style: txt.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _body,
-              autofocus: true,
-              minLines: 2,
-              maxLines: 6,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                hintText: 'Lo que quieras recordar…',
-              ),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final m in _moods)
-                  GestureDetector(
-                    onTap: () => setState(() => _mood = _mood == m ? null : m),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: _mood == m ? Neo.yellow : Neo.white,
-                        border: Neo.borderThin,
-                        borderRadius: Neo.cornerSm,
-                      ),
-                      child: Text(m, style: const TextStyle(fontSize: 18)),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: NeoButton(
-                    label: 'Cancelar',
-                    color: Neo.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: NeoButton(
-                    label: 'Guardar',
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () {
-                      final t = _body.text.trim();
-                      if (t.isEmpty) return;
-                      Navigator.pop(context, (body: t, mood: _mood));
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _EmptyDay extends StatelessWidget {
-  const _EmptyDay();
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final txt = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        children: [
-          const NeoAvatar(
-            size: 72,
-            color: Neo.mint,
-            child: Icon(Icons.auto_stories_rounded, size: 34, color: Neo.ink),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Nada escrito este día',
-            style: txt.titleSmall,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Toca "Escribir" para dejar una entrada en esta fecha.',
-            style: txt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── composer ────────────────────────────────────────────────────────────────
-
-class _Composer extends StatefulWidget {
-  const _Composer({
-    required this.dayLabel,
-    required this.sending,
-    required this.onSubmit,
-    required this.onClose,
-  });
-  final String dayLabel;
-  final bool sending;
-  final ValueChanged<EntryDraft> onSubmit;
-  final VoidCallback onClose;
-
-  @override
-  State<_Composer> createState() => _ComposerState();
-}
-
-class _ComposerState extends State<_Composer> {
-  final _body = TextEditingController();
-  final _link = TextEditingController();
-  String? _mood;
-  final List<String> _photos = [];
-  String? _videoPath;
-  GeoTag? _geo;
-  bool _locating = false;
-
-  // Voice note: hold the mic to record, release to keep the take.
-  final _recorder = VoiceRecorder();
-  String? _audioPath;
-  bool _recording = false;
-  Duration _elapsed = Duration.zero;
-  Timer? _ticker;
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    _recorder.dispose();
-    _body.dispose();
-    _link.dispose();
-    super.dispose();
-  }
-
-  Future<void> _startRecording() async {
-    if (_recording) return;
-    final path = await _recorder.start();
-    if (path == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Necesito permiso del micrófono')),
-      );
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _recording = true;
-      _elapsed = Duration.zero;
-    });
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
-    });
-  }
-
-  Future<void> _stopRecording({bool keep = true}) async {
-    if (!_recording) return;
-    _ticker?.cancel();
-    final path = keep ? await _recorder.stop() : null;
-    if (!keep) await _recorder.cancel();
-    if (!mounted) return;
-    setState(() {
-      _recording = false;
-      // Takes under a second are almost always an accidental tap.
-      if (keep && path != null && _elapsed.inMilliseconds >= 900) {
-        _audioPath = path;
-      }
-      _elapsed = Duration.zero;
-    });
-  }
-
-  Future<void> _pickPhotos() async {
-    final shots = await ImagePicker().pickMultiImage(imageQuality: 88);
-    if (shots.isEmpty) return;
-    setState(() => _photos.addAll(shots.map((x) => x.path)));
-  }
-
-  Future<void> _pickVideo() async {
-    final v = await ImagePicker().pickVideo(source: ImageSource.gallery);
-    if (v != null) setState(() => _videoPath = v.path);
-  }
-
-  Future<void> _addLocation() async {
-    setState(() => _locating = true);
-    final geo = await MediaTools.captureLocation();
-    if (!mounted) return;
-    setState(() {
-      _locating = false;
-      _geo = geo;
-    });
-    if (geo == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo obtener la ubicación')),
-      );
-    }
-  }
-
-  void _submit() {
-    if (_body.text.trim().isEmpty) return;
-    widget.onSubmit(
-      EntryDraft(
-        body: _body.text,
-        mood: _mood,
-        link: _link.text.trim().isEmpty ? null : _link.text.trim(),
-        imagePaths: List.of(_photos),
-        videoPath: _videoPath,
-        audioPath: _audioPath,
-        geo: _geo,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    final maxH = MediaQuery.of(context).size.height * 0.62;
-    return Container(
-      decoration: const BoxDecoration(
-        color: Neo.paper,
-        border: Border(
-          top: BorderSide(color: Neo.ink, width: Neo.stroke),
-        ),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        16,
-        14,
-        16,
-        MediaQuery.of(context).viewInsets.bottom + 14,
-      ),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxH),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const NeoIconBadge(
-                    icon: Icons.edit_rounded,
-                    color: Neo.pink,
-                    size: 30,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'ESCRIBIR · ${widget.dayLabel}',
-                      style: txt.labelMedium?.copyWith(letterSpacing: 1.2),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  NeoIconButton(
-                    icon: Icons.close_rounded,
-                    size: 40,
-                    iconSize: 20,
-                    onPressed: widget.onClose,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Mood (emoji is fine here).
-              SizedBox(
-                height: 44,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final m in _moods)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: GestureDetector(
-                          onTap: () =>
-                              setState(() => _mood = _mood == m ? null : m),
-                          child: Container(
-                            width: 44,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: _mood == m ? Neo.mint : Neo.white,
-                              border: Neo.borderThin,
-                              borderRadius: Neo.cornerSm,
-                            ),
-                            child: Text(
-                              m,
-                              style: const TextStyle(fontSize: 20),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _body,
-                autofocus: true,
-                minLines: 3,
-                maxLines: 6,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  hintText: 'Lo que sientes ahora, o lo que quieres recordar…',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _link,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  hintText: 'Enlace (opcional): canción, artículo…',
-                  prefixIcon: Icon(Icons.link_rounded),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Attachment previews.
-              if (_photos.isNotEmpty) _photoStrip(),
-              if (_videoPath != null)
-                _attachmentChip(
-                  Icons.movie_rounded,
-                  'Vídeo adjunto',
-                  Neo.sky,
-                  () => setState(() => _videoPath = null),
-                ),
-              if (_audioPath != null)
-                _attachmentChip(
-                  Icons.mic_rounded,
-                  'Nota de voz',
-                  Neo.coral,
-                  () => setState(() => _audioPath = null),
-                ),
-              if (_geo != null)
-                _attachmentChip(
-                  Icons.place_rounded,
-                  _geo!.label ?? 'Ubicación',
-                  Neo.mint,
-                  () => setState(() => _geo = null),
-                ),
-              // Attachment buttons.
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  _attachBtn(
-                    Icons.add_photo_alternate_outlined,
-                    'Fotos',
-                    _pickPhotos,
-                  ),
-                  _attachBtn(Icons.videocam_rounded, 'Vídeo', _pickVideo),
-                  _attachBtn(
-                    Icons.place_rounded,
-                    _locating ? '…' : 'Ubicación',
-                    _addLocation,
-                  ),
-                  // Hold to record, release to keep — as in WhatsApp.
-                  GestureDetector(
-                    onLongPressStart: (_) => _startRecording(),
-                    onLongPressEnd: (_) => _stopRecording(),
-                    onLongPressCancel: () => _stopRecording(keep: false),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _recording ? Neo.coral : Neo.white,
-                        border: Neo.border,
-                        borderRadius: Neo.cornerSm,
-                        boxShadow: _recording
-                            ? const []
-                            : Neo.shadow(Neo.shadowSm),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _recording ? Icons.stop_rounded : Icons.mic_rounded,
-                            size: 16,
-                            color: Neo.ink,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _recording
-                                ? _clock(_elapsed)
-                                : 'Mantén para grabar',
-                            style: txt.labelSmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              NeoButton(
-                label: 'Guardar',
-                icon: Icons.check_rounded,
-                expand: true,
-                busy: widget.sending,
-                onPressed: _submit,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static String _clock(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-
-  Widget _attachBtn(IconData icon, String label, VoidCallback onTap) {
-    return NeoButton(
-      label: label,
-      icon: icon,
-      color: Neo.white,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      shadowOffset: Neo.shadowSm,
-      textStyle: Theme.of(context).textTheme.labelSmall,
-      onPressed: onTap,
-    );
-  }
-
-  Widget _attachmentChip(
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onRemove,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
-        decoration: BoxDecoration(
-          color: color,
-          border: Neo.borderThin,
-          borderRadius: Neo.cornerSm,
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 16, color: Neo.ink),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.labelSmall?.copyWith(color: Neo.ink),
-              ),
-            ),
-            GestureDetector(
-              onTap: onRemove,
-              child: const Icon(Icons.close_rounded, size: 18, color: Neo.ink),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _photoStrip() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: SizedBox(
-        height: 72,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          children: [
-            for (final p in _photos)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Stack(
-                  children: [
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        border: Neo.borderThin,
-                        borderRadius: Neo.cornerSm,
-                      ),
-                      clipBehavior: Clip.antiAliasWithSaveLayer,
-                      child: Image.file(File(p), fit: BoxFit.cover),
-                    ),
-                    Positioned(
-                      top: 2,
-                      right: 2,
-                      child: GestureDetector(
-                        onTap: () => setState(() => _photos.remove(p)),
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: const BoxDecoration(
-                            color: Neo.ink,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.close_rounded,
-                            size: 13,
-                            color: Neo.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── special date dialog ─────────────────────────────────────────────────────
-
-class _SpecialInput {
-  const _SpecialInput(this.title, this.iconKey);
-  final String title;
-  final String iconKey;
-}
-
-class _SpecialDateDialog extends StatefulWidget {
-  const _SpecialDateDialog({required this.day});
-  final DateTime day;
-
-  @override
-  State<_SpecialDateDialog> createState() => _SpecialDateDialogState();
-}
-
-class _SpecialDateDialogState extends State<_SpecialDateDialog> {
-  final _title = TextEditingController();
-  String _iconKey = 'star';
-
-  @override
-  void dispose() {
-    _title.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final txt = Theme.of(context).textTheme;
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.all(28),
-      child: NeoBox(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Fecha especial',
-              style: txt.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _dayLabel(widget.day),
-              textAlign: TextAlign.center,
-              style: txt.labelSmall?.copyWith(
-                color: Neo.ink.withValues(alpha: .6),
-              ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _title,
-              autofocus: true,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                hintText: 'Aniversario, viaje, cumpleaños…',
-              ),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final e in _specialIcons.entries)
-                  GestureDetector(
-                    onTap: () => setState(() => _iconKey = e.key),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: _iconKey == e.key ? Neo.yellow : Neo.white,
-                        border: Neo.borderThin,
-                        borderRadius: Neo.cornerSm,
-                      ),
-                      child: Icon(e.value, size: 20, color: Neo.ink),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: NeoButton(
-                    label: 'Cancelar',
-                    color: Neo.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: NeoButton(
-                    label: 'Guardar',
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    onPressed: () {
-                      final t = _title.text.trim();
-                      if (t.isEmpty) return;
-                      Navigator.pop(context, _SpecialInput(t, _iconKey));
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

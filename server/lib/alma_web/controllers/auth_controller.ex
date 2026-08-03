@@ -6,6 +6,7 @@ defmodule AlmaWeb.AuthController do
   def register(conn, %{"email" => email, "password" => password}) do
     case Accounts.register(email, password) do
       {:ok, user} -> issue(conn, user)
+      {:error, :registration_closed} -> bad(conn, :registration_closed, :forbidden)
       {:error, reason} -> bad(conn, reason)
     end
   end
@@ -77,9 +78,9 @@ defmodule AlmaWeb.AuthController do
     json(conn, %{token: token, user: Accounts.to_public(user)})
   end
 
-  defp bad(conn, reason) do
+  defp bad(conn, reason, status \\ :bad_request) do
     conn
-    |> put_status(:bad_request)
+    |> put_status(status)
     |> json(%{error: to_string(reason)})
   end
 end

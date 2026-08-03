@@ -19,6 +19,14 @@ final commentsForPostProvider = StreamProvider.autoDispose
           ref.watch(commentRepositoryProvider).watchForPost(postId),
     );
 
+/// Live comments on a diary entry, oldest first — a conversation reads better
+/// in order than a feed does.
+final commentsForNoteProvider = StreamProvider.autoDispose
+    .family<List<CommentLocal>, String>(
+      (ref, noteId) =>
+          ref.watch(commentRepositoryProvider).watchForNote(noteId),
+    );
+
 /// Offline-first comments for a post:
 /// 1. `create` writes to Isar with sync_status:pending and returns immediately.
 /// 2. `flushPending` is called by the sheet right after the optimistic write
@@ -32,7 +40,17 @@ class CommentRepository {
     return _isar.commentLocals
         .filter()
         .postIdEqualTo(postId)
+        .targetTypeEqualTo('post')
         .sortByCreatedAtDesc()
+        .watch(fireImmediately: true);
+  }
+
+  Stream<List<CommentLocal>> watchForNote(String noteId) {
+    return _isar.commentLocals
+        .filter()
+        .postIdEqualTo(noteId)
+        .targetTypeEqualTo('note')
+        .sortByCreatedAt()
         .watch(fireImmediately: true);
   }
 
@@ -40,9 +58,11 @@ class CommentRepository {
     required String postId,
     required String authorId,
     required String text,
+    String targetType = 'post',
   }) async {
     final row = CommentLocal()
       ..postId = postId
+      ..targetType = targetType
       ..authorId = authorId
       ..text = text
       ..createdAt = DateTime.now()
@@ -67,7 +87,7 @@ class CommentRepository {
     for (final c in pending) {
       try {
         final res = await _dio.post(
-          Endpoints.postComments(c.postId),
+          Endpoints.commentsFor(c.targetType, c.postId),
           data: {'body': c.text},
         );
         if (res.statusCode == 200 || res.statusCode == 201) {
@@ -92,7 +112,9 @@ class CommentRepository {
   /// when the user reopens the sheet offline.
   Future<void> upsertFromRemote(Map<String, dynamic> j) async {
     final remoteId = (j['id'] ?? j['_id'])?.toString();
-    final postId = j['post_id']?.toString();
+    // Diary comments carry target_type/target_id; feed rows only post_id.
+    final targetType = j['target_type']?.toString() ?? 'post';
+    final postId = (j['target_id'] ?? j['post_id'])?.toString();
     if (remoteId == null || postId == null) return;
     final authorId = j['author_id']?.toString() ?? '';
     final text = (j['body'] ?? j['text'])?.toString() ?? '';
@@ -109,6 +131,7 @@ class CommentRepository {
         await _isar.commentLocals
             .filter()
             .postIdEqualTo(postId)
+            .targetTypeEqualTo(targetType)
             .authorIdEqualTo(authorId)
             .textEqualTo(text)
             .syncStatusEqualTo('pending')
@@ -117,6 +140,7 @@ class CommentRepository {
     await _isar.writeTxn(() async {
       final row = existing ?? CommentLocal();
       row
+        ..targetType = targetType
         ..remoteId = remoteId
         ..postId = postId
         ..authorId = authorId

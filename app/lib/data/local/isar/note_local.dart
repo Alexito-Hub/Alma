@@ -18,6 +18,11 @@ class NoteLocal {
   @Index()
   late String syncStatus;
 
+  /// Private entries only show behind the couple's PIN, never in the normal
+  /// diary views.
+  @Index()
+  bool isPrivate = false;
+
   int retryCount = 0;
   String? lastError;
 
@@ -42,7 +47,12 @@ class NoteLocal {
   String? audioPath;
   String? remoteAudioUrl;
 
-  /// A short video attached to the entry (local path; remote once synced).
+  /// Short videos attached to the entry (local paths; remote once synced).
+  List<String> videoPaths = const [];
+  List<String> remoteVideoUrls = const [];
+
+  /// Legacy single-video fields, kept so entries written before multi-video
+  /// support still render. New entries only fill the lists above.
   String? videoPath;
   String? remoteVideoUrl;
 

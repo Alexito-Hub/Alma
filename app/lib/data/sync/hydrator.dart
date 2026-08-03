@@ -1,13 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:isar_community/isar.dart';
-import 'package:path_provider/path_provider.dart';
 
-import '../../core/config/env.dart';
 import '../device/home_widgets.dart';
 import '../device/notifications.dart';
+import '../local/isar/date_idea_local.dart';
 import '../local/isar/note_local.dart';
 import '../local/isar/post_local.dart';
 import '../local/isar/special_date_local.dart';
@@ -16,6 +14,9 @@ import '../local/isar_service.dart';
 import '../remote/api_client.dart';
 import '../remote/endpoints.dart';
 import '../remote/ws_client.dart';
+import '../repositories/comment_repository.dart';
+import 'status_photo_cache.dart';
+import 'sync_prefs.dart';
 
 /// Pulls the couple's data down from the server into Isar so the offline
 /// caches reflect what the partner has been doing. Idempotent: a row already
@@ -49,11 +50,25 @@ class Hydrator {
     this.partnerName = partnerName;
     if (coupleId == null) return;
     await Future.wait([
-      _pullNotes(),
-      _pullPosts(),
-      _pullStatus(),
-      _pullSpecialDates(),
+      _guard(_pullNotes),
+      _guard(_pullPosts),
+      _guard(_pullStatus),
+      _guard(_pullSpecialDates),
+      _guard(_pullDateIdeas),
     ]);
+  }
+
+  /// Run one pull, keeping its failure to itself.
+  ///
+  /// Every caller fires hydration and forgets it, so anything escaping here
+  /// lands as an unhandled async error rather than as a stale tab. The pulls
+  /// catch `DioException` themselves; this covers the rest.
+  Future<void> _guard(Future<void> Function() pull) async {
+    try {
+      await pull();
+    } catch (_) {
+      // The next hydrate — app resume, or the periodic tick — tries again.
+    }
   }
 
   String? _subscribedCoupleId;
@@ -100,6 +115,7 @@ class Hydrator {
                 _partnerName,
                 p['title']?.toString() ?? '',
               );
+              await _markSeen('post', p['created_at']);
             }
             break;
           case 'post_updated':
@@ -112,6 +128,7 @@ class Hydrator {
                 _partnerName,
                 p['body']?.toString() ?? '',
               );
+              await _markSeen('note', p['created_at']);
             }
             break;
           case 'note_updated':
@@ -128,6 +145,16 @@ class Hydrator {
             break;
           case 'post_deleted':
             await _deletePostByRemoteId((p['id'] ?? p['_id'])?.toString());
+            break;
+          case 'new_comment':
+            await _upsertComment(p);
+            break;
+          case 'new_date_idea':
+          case 'date_idea_updated':
+            if (!fromSelf) await _upsertDateIdea(p);
+            break;
+          case 'date_idea_deleted':
+            await _deleteDateIdeaByRemoteId((p['id'] ?? p['_id'])?.toString());
             break;
           case 'special_date_deleted':
             await _deleteSpecialDateByRemoteId(
@@ -213,9 +240,27 @@ class Hydrator {
           res.data['statuses'] as List? ??
           (res.data['status'] == null ? const [] : [res.data['status']]);
       if (list.isEmpty) return;
+
+      // Snapshots are downloaded *before* the transaction — network calls
+      // can't run inside a writeTxn, and skipping this step used to leave the
+      // previous photo attached to a freshly updated status.
+      final photos = <String, String?>{};
+      for (final raw in list) {
+        final j = Map<String, dynamic>.from(raw as Map);
+        final author = j['author_id']?.toString();
+        final url = j['image_url']?.toString();
+        if (author != null && url != null && url.isNotEmpty) {
+          photos[author] = await _cachePhoto(url);
+        }
+      }
+
       await _isar.writeTxn(() async {
         for (final raw in list) {
-          await _upsertStatusInTxn(Map<String, dynamic>.from(raw as Map));
+          final j = Map<String, dynamic>.from(raw as Map);
+          await _upsertStatusInTxn(
+            j,
+            localPhoto: photos[j['author_id']?.toString()],
+          );
         }
       });
     } on DioException {
@@ -254,9 +299,13 @@ class Hydrator {
       ..body = j['body']?.toString() ?? ''
       ..authorId = j['author_id']?.toString() ?? ''
       ..createdAt = _date(j['created_at']) ?? DateTime.now()
+      ..isPrivate = j['private'] == true
       ..mood = j['mood']?.toString()
       ..link = j['link']?.toString()
       ..remoteImageUrls = (j['image_urls'] as List? ?? const [])
+          .map((u) => u.toString())
+          .toList()
+      ..remoteVideoUrls = (j['video_urls'] as List? ?? const [])
           .map((u) => u.toString())
           .toList()
       ..remoteVideoUrl = j['video_url']?.toString()
@@ -327,29 +376,22 @@ class Hydrator {
       photoPath: photo,
       at: _date(j['updated_at']),
     );
+    await _markSeen('status', j['updated_at']);
   }
 
-  /// Download a status snapshot into the cache directory, returning its local
-  /// path. Re-uses an existing copy so repeated hydrations don't re-fetch.
-  Future<String?> _cachePhoto(String? url) async {
-    if (url == null || url.isEmpty) return null;
-    final absolute = url.startsWith('http') ? url : '${Env.apiBaseUrl}$url';
-    try {
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/status_${absolute.hashCode}.img');
-      if (await file.exists()) return file.path;
-      final res = await _dio.get<List<int>>(
-        absolute,
-        options: Options(responseType: ResponseType.bytes),
-      );
-      final bytes = res.data;
-      if (bytes == null || bytes.isEmpty) return null;
-      await file.writeAsBytes(bytes);
-      return file.path;
-    } catch (_) {
-      return null;
-    }
+  /// Record that we already told the user about this item, so the background
+  /// tick doesn't announce the same thing again minutes later.
+  Future<void> _markSeen(String kind, dynamic stamp) async {
+    final value = stamp?.toString();
+    if (value == null || value.isEmpty) return;
+    await SyncPrefs.setMarker(kind, value);
   }
+
+  /// Public entry point for callers that need a local copy of a status photo
+  /// (the home-screen widget can only read files, not URLs).
+  Future<String?> cacheStatusPhoto(String? url) => _cachePhoto(url);
+
+  Future<String?> _cachePhoto(String? url) => cacheStatusPhotoWith(_dio, url);
 
   Future<void> _upsertStatusInTxn(
     Map<String, dynamic> j, {
@@ -376,7 +418,12 @@ class Hydrator {
       ..remoteImageUrl = (remoteImage == null || remoteImage.isEmpty)
           ? null
           : remoteImage
-      ..imagePath = localPhoto ?? (remoteImage == null ? null : row.imagePath)
+      // Strictly derived from the current remote photo: keeping the old local
+      // path when a download fails is what made a new status show the
+      // previous image. Null just falls back to loading from the URL.
+      ..imagePath = (remoteImage == null || remoteImage.isEmpty)
+          ? null
+          : localPhoto
       ..updatedAt = _date(j['updated_at']) ?? DateTime.now()
       ..syncStatus = 'synced';
     await _isar.statusLocals.put(row);
@@ -401,6 +448,80 @@ class Hydrator {
     } on DioException {
       /* ignore */
     }
+  }
+
+  /// A comment on a diary entry, arriving live on the couple channel.
+  Future<void> _upsertComment(Map<String, dynamic> j) async {
+    await CommentRepository().upsertFromRemote(j);
+  }
+
+  Future<void> _pullDateIdeas() async {
+    try {
+      final res = await _dio.get(Endpoints.dateIdeas);
+      final list = (res.data['date_ideas'] as List? ?? const []);
+      final serverIds = _idsOf(list);
+      await _isar.writeTxn(() async {
+        for (final raw in list) {
+          await _upsertDateIdeaInTxn(Map<String, dynamic>.from(raw as Map));
+        }
+        final all = await _isar.dateIdeaLocals.where().findAll();
+        final stale = all
+            .where((d) => d.remoteId != null && !serverIds.contains(d.remoteId))
+            .map((d) => d.isarId)
+            .toList();
+        if (stale.isNotEmpty) await _isar.dateIdeaLocals.deleteAll(stale);
+      });
+    } on DioException {
+      /* ignore */
+    }
+  }
+
+  Future<void> _upsertDateIdea(Map<String, dynamic> j) =>
+      _isar.writeTxn(() => _upsertDateIdeaInTxn(j));
+
+  Future<void> _upsertDateIdeaInTxn(Map<String, dynamic> j) async {
+    final remoteId = (j['_id'] ?? j['id'])?.toString();
+    if (remoteId == null) return;
+    var existing = await _isar.dateIdeaLocals
+        .filter()
+        .remoteIdEqualTo(remoteId)
+        .findFirst();
+    existing ??= await _mineByClientId(j, _isar.dateIdeaLocals.get);
+    // Local changes win until pushed.
+    if (existing != null &&
+        (existing.syncStatus == 'deleted' || existing.syncStatus == 'edited')) {
+      return;
+    }
+    final row = existing ?? DateIdeaLocal();
+    row
+      ..remoteId = remoteId
+      ..title = j['title']?.toString() ?? ''
+      ..description = j['description']?.toString() ?? ''
+      ..proposedBy = j['author_id']?.toString() ?? ''
+      ..plannedAt = _date(j['planned_at'])
+      ..done = j['done'] == true
+      ..doneAt = _date(j['done_at'])
+      ..doneNote = j['done_note']?.toString()
+      ..remoteImageUrls = (j['image_urls'] as List? ?? const [])
+          .map((u) => u.toString())
+          .toList()
+      ..latitude = _toDouble(j['latitude'])
+      ..longitude = _toDouble(j['longitude'])
+      ..placeLabel = j['place_label']?.toString()
+      ..createdAt = _date(j['created_at']) ?? DateTime.now()
+      ..syncStatus = 'synced';
+    await _isar.dateIdeaLocals.put(row);
+  }
+
+  Future<void> _deleteDateIdeaByRemoteId(String? remoteId) async {
+    if (remoteId == null) return;
+    await _isar.writeTxn(() async {
+      final row = await _isar.dateIdeaLocals
+          .filter()
+          .remoteIdEqualTo(remoteId)
+          .findFirst();
+      if (row != null) await _isar.dateIdeaLocals.delete(row.isarId);
+    });
   }
 
   Future<void> _upsertSpecialDate(Map<String, dynamic> j) =>

@@ -31,8 +31,17 @@ defmodule Alma.MongoIndexes do
       %{"key" => %{"author_id" => 1, "client_id" => 1}, "name" => "author_client_idx"}
     ])
 
+    create("date_ideas", [
+      %{"key" => %{"couple_id" => 1, "created_at" => -1}, "name" => "couple_created_idx"},
+      %{"key" => %{"author_id" => 1, "client_id" => 1}, "name" => "author_client_idx"}
+    ])
+
     create("comments", [
-      %{"key" => %{"post_id" => 1, "created_at" => 1}, "name" => "post_created_idx"}
+      %{"key" => %{"post_id" => 1, "created_at" => 1}, "name" => "post_created_idx"},
+      %{
+        "key" => %{"target_type" => 1, "target_id" => 1, "created_at" => 1},
+        "name" => "target_created_idx"
+      }
     ])
 
     create("media", [
