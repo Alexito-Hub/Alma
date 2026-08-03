@@ -82,33 +82,38 @@ class MediaTools {
           accuracy: LocationAccuracy.high,
         ),
       );
-      String? label;
-      try {
-        final places = await placemarkFromCoordinates(
-          pos.latitude,
-          pos.longitude,
-        );
-        if (places.isNotEmpty) {
-          final p = places.first;
-          // Prefer the most specific parts (street/neighbourhood) so the label
-          // is an actual place, not just the region.
-          final parts = [
-            p.street,
-            p.subLocality,
-            p.locality,
-            p.administrativeArea,
-          ].where((s) => s != null && s.trim().isNotEmpty).toList();
-          label = parts.isEmpty ? p.name : parts.take(3).join(', ');
-        }
-      } catch (_) {
-        // Reverse-geocoding is optional; coordinates are enough.
-      }
       return GeoTag(
         latitude: pos.latitude,
         longitude: pos.longitude,
-        label: (label == null || label.isEmpty) ? null : label,
+        label: await describeCoordinates(pos.latitude, pos.longitude),
       );
     } catch (_) {
+      return null;
+    }
+  }
+
+  /// Best-effort human name for a point ("Av. Larco, Miraflores, Lima").
+  ///
+  /// Used both for the phone's current position and for the fix a camera left
+  /// in a photo's EXIF, so the two read the same way in the diary. Null when
+  /// the lookup fails — coordinates alone are still a valid geotag.
+  static Future<String?> describeCoordinates(double lat, double lon) async {
+    try {
+      final places = await placemarkFromCoordinates(lat, lon);
+      if (places.isEmpty) return null;
+      final p = places.first;
+      // Prefer the most specific parts (street/neighbourhood) so the label is
+      // an actual place, not just the region.
+      final parts = [
+        p.street,
+        p.subLocality,
+        p.locality,
+        p.administrativeArea,
+      ].where((s) => s != null && s.trim().isNotEmpty).toList();
+      final label = parts.isEmpty ? p.name : parts.take(3).join(', ');
+      return (label == null || label.trim().isEmpty) ? null : label;
+    } catch (_) {
+      // Reverse-geocoding is optional; coordinates are enough.
       return null;
     }
   }

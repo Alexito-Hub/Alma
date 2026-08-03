@@ -11,6 +11,7 @@ import 'package:table_calendar/table_calendar.dart';
 
 import '../../../core/theme/neo.dart';
 import '../../../data/device/media_tools.dart';
+import '../../../data/device/photo_exif.dart';
 import '../../../data/device/voice_recorder.dart';
 import '../../../data/local/diary_prefs.dart';
 import '../../../data/local/isar/comment_local.dart';

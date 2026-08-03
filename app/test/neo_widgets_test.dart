@@ -33,7 +33,7 @@ void main() {
       expect(find.text('Inerte'), findsOneWidget);
     });
 
-    testWidgets('busy shows a spinner and suppresses the callback', (
+    testWidgets('busy shows the loader and suppresses the callback', (
       tester,
     ) async {
       var taps = 0;
@@ -41,10 +41,29 @@ void main() {
         _host(NeoButton(label: 'X', busy: true, onPressed: () => taps++)),
       );
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(NeoLoader), findsOneWidget);
+      // Material's spinner is the thing NeoLoader replaced; if it comes back
+      // anywhere in this design system, it's a regression.
+      expect(find.byType(CircularProgressIndicator), findsNothing);
       await tester.tap(find.byType(NeoButton));
       expect(taps, 0);
     });
+  });
+
+  testWidgets('NeoLoader steps through its blocks and stops when disposed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host(const NeoLoader()));
+    expect(find.byType(NeoLoader), findsOneWidget);
+
+    // It animates forever, so pumpAndSettle would time out — advance by hand.
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    // Replacing it must dispose the controller cleanly; a leaked ticker fails
+    // the test at teardown.
+    await tester.pumpWidget(_host(const SizedBox()));
+    expect(find.byType(NeoLoader), findsNothing);
   });
 
   testWidgets('NeoErrorBanner shows its message', (tester) async {

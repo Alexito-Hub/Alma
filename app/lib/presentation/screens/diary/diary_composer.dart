@@ -28,6 +28,13 @@ class _ComposerState extends State<_Composer> {
   GeoTag? _geo;
   bool _locating = false;
 
+  /// Where a picked photo says it was taken, read from its EXIF.
+  ///
+  /// Offered, never applied on its own: the entry's place is the couple's to
+  /// choose, and a photo can carry a fix from somewhere they don't mean —
+  /// a screenshot, a picture of a picture, something forwarded to them.
+  GeoTag? _photoGeo;
+
   // Voice note: hold the mic to record, release to keep the take.
   final _recorder = VoiceRecorder();
   String? _audioPath;
@@ -80,15 +87,48 @@ class _ComposerState extends State<_Composer> {
     });
   }
 
+  /// Photos go in exactly as the camera made them.
+  ///
+  /// This used to pass `imageQuality: 88`, which is not a hint — it makes
+  /// image_picker re-encode the JPEG before handing it over ("if null, the
+  /// image will be returned with the original quality"). Every memory was
+  /// getting a second lossy pass, and the metadata the camera wrote — when
+  /// and where the photo was taken — did not survive it. Nothing here is
+  /// worth that; the diary is the copy of record.
   Future<void> _pickPhotos() async {
-    final shots = await ImagePicker().pickMultiImage(imageQuality: 88);
+    final shots = await ImagePicker().pickMultiImage();
     if (shots.isEmpty) return;
-    setState(() => _photos.addAll(shots.map((x) => x.path)));
+    final paths = shots.map((x) => x.path).toList();
+    setState(() => _photos.addAll(paths));
+    await _offerPhotoLocation(paths);
   }
 
   Future<void> _pickVideo() async {
     final v = await ImagePicker().pickVideo(source: ImageSource.gallery);
     if (v != null) setState(() => _videos.add(v.path));
+  }
+
+  /// If one of the just-picked photos knows where it was taken, hold on to it
+  /// so the composer can offer it. Silent when nothing carries a fix.
+  Future<void> _offerPhotoLocation(List<String> paths) async {
+    if (_geo != null || _photoGeo != null) return;
+    for (final path in paths) {
+      final exif = await readPhotoExif(File(path));
+      if (exif == null || !exif.hasLocation) continue;
+      final label = await MediaTools.describeCoordinates(
+        exif.latitude!,
+        exif.longitude!,
+      );
+      if (!mounted) return;
+      setState(() {
+        _photoGeo = GeoTag(
+          latitude: exif.latitude!,
+          longitude: exif.longitude!,
+          label: label,
+        );
+      });
+      return;
+    }
   }
 
   Future<void> _addLocation() async {
@@ -243,6 +283,7 @@ class _ComposerState extends State<_Composer> {
                   Neo.mint,
                   () => setState(() => _geo = null),
                 ),
+              if (_geo == null && _photoGeo != null) _photoPlaceOffer(),
               // Attachment buttons — replaced by the recorder while taping.
               if (_recording) _recordingBar(),
               if (!_recording)
@@ -348,6 +389,66 @@ class _ComposerState extends State<_Composer> {
       shadowOffset: Neo.shadowSm,
       textStyle: Theme.of(context).textTheme.labelSmall,
       onPressed: onTap,
+    );
+  }
+
+  /// "This photo knows where it was taken" — an offer, with a way to say no.
+  ///
+  /// Deliberately not the same shape as an attachment chip: nothing has been
+  /// added to the entry yet, and it shouldn't look as if it had.
+  Widget _photoPlaceOffer() {
+    final geo = _photoGeo!;
+    final txt = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+        decoration: BoxDecoration(
+          color: Neo.white,
+          border: Neo.borderThin,
+          borderRadius: Neo.cornerSm,
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.photo_camera_back_outlined, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('La foto recuerda dónde fue', style: txt.labelSmall),
+                  Text(
+                    geo.label ??
+                        '${geo.latitude.toStringAsFixed(4)}, '
+                            '${geo.longitude.toStringAsFixed(4)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: txt.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            NeoButton(
+              label: 'Usar',
+              color: Neo.mint,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              shadowOffset: Neo.shadowSm,
+              onPressed: () => setState(() {
+                _geo = _photoGeo;
+                _photoGeo = null;
+              }),
+            ),
+            GestureDetector(
+              onTap: () => setState(() => _photoGeo = null),
+              child: const Padding(
+                padding: EdgeInsets.only(left: 4),
+                child: Icon(Icons.close_rounded, size: 18, color: Neo.ink),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

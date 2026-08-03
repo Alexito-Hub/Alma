@@ -360,10 +360,11 @@ class _NeoButtonState extends State<NeoButton> {
 
     Widget content;
     if (widget.busy) {
-      content = const SizedBox(
-        width: 20,
+      // Sits on the button's own fill, so the "off" blocks take that colour
+      // rather than white — otherwise they'd read as a second surface.
+      content = SizedBox(
         height: 20,
-        child: CircularProgressIndicator(strokeWidth: 3, color: Neo.ink),
+        child: Center(child: NeoLoader(fill: widget.color)),
       );
     } else if (widget.child != null) {
       content = widget.child!;
@@ -422,6 +423,84 @@ class _NeoButtonState extends State<NeoButton> {
             }
           : null,
       child: Opacity(opacity: enabled ? 1 : .6, child: button),
+    );
+  }
+}
+
+/// Waiting, in the same language as everything else.
+///
+/// Material's spinner is a thin, anti-aliased arc gliding on an easing curve
+/// — three of the things the rules at the top of this file forbid — so it read
+/// as a piece of a different app every time something loaded. This is a row of
+/// hard-bordered blocks that fill one at a time and *step* rather than glide.
+///
+/// [size] is the side of one block; [count] how many. The default fits inside
+/// a [NeoButton] in place of its label.
+class NeoLoader extends StatefulWidget {
+  const NeoLoader({
+    super.key,
+    this.size = 10,
+    this.count = 3,
+    this.color = Neo.ink,
+    this.fill = Neo.white,
+  });
+
+  final double size;
+  final int count;
+
+  /// Stroke colour, and the fill of the block that is currently "on".
+  final Color color;
+
+  /// Fill of the blocks that are currently "off".
+  final Color fill;
+
+  @override
+  State<NeoLoader> createState() => _NeoLoaderState();
+}
+
+class _NeoLoaderState extends State<NeoLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    // One full pass every ~900ms regardless of how many blocks there are.
+    duration: const Duration(milliseconds: 900),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gap = widget.size * .45;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) {
+        // Floor to an int so the highlight jumps between blocks instead of
+        // sliding through the in-between values.
+        final active = (_c.value * widget.count).floor() % widget.count;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < widget.count; i++) ...[
+              if (i > 0) SizedBox(width: gap),
+              Container(
+                width: widget.size,
+                height: widget.size,
+                decoration: BoxDecoration(
+                  color: i == active ? widget.color : widget.fill,
+                  border: Border.all(
+                    color: widget.color,
+                    width: Neo.strokeThin,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 }

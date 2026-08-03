@@ -154,11 +154,7 @@ class _NeoSplash extends StatelessWidget {
               ),
             ),
             SizedBox(height: 20),
-            SizedBox(
-              width: 26,
-              height: 26,
-              child: CircularProgressIndicator(strokeWidth: 3, color: Neo.ink),
-            ),
+            NeoLoader(size: 14, fill: Neo.paper),
           ],
         ),
       ),
