@@ -4,11 +4,19 @@ config :alma,
   generators: [timestamp_type: :utc_datetime],
   media_root: System.get_env("ALMA_MEDIA_ROOT") || "priv/static/media",
   media_public_prefix: "/media",
-  # Biggest single upload the parser will buffer. It used to be a gigabyte,
-  # which is three orders of magnitude past anything the app sends after
-  # compression. Compile-time: `Plug.Parsers` is initialised when the endpoint
-  # is built, so a runtime value would never reach it.
-  max_upload_mb: 256,
+  # Biggest single upload the parser will buffer. One file per request — the
+  # client POSTs each photo or clip separately — so this is a per-file ceiling,
+  # not a per-entry one.
+  #
+  # Kept deliberately generous: diary media is the one path that doesn't go
+  # through `MediaCompressor`, so a long clip arrives at whatever size the
+  # camera produced. What actually protects the disk from a stranger is the
+  # closed registration (`ALMA_ALLOWED_EMAILS`), not this number; squeezing it
+  # only risks refusing a real memory.
+  #
+  # Compile-time: `Plug.Parsers` is initialised when the endpoint is built, so
+  # a runtime value would never reach it.
+  max_upload_mb: 1024,
   # Surfaced by the health endpoint; works in releases too (no Mix at runtime).
   env: config_env()
 
