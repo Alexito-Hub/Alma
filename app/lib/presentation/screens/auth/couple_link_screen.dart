@@ -383,7 +383,7 @@ class _InboxPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Center(child: NeoLoader(size: 14, fill: Neo.paper));
+      return const Center(child: NeoSpinner(size: 34));
     }
     if (error != null) {
       return _EmptyMessage(

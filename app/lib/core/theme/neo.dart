@@ -360,11 +360,10 @@ class _NeoButtonState extends State<NeoButton> {
 
     Widget content;
     if (widget.busy) {
-      // Sits on the button's own fill, so the "off" blocks take that colour
-      // rather than white — otherwise they'd read as a second surface.
-      content = SizedBox(
+      content = const SizedBox(
+        width: 20,
         height: 20,
-        child: Center(child: NeoLoader(fill: widget.color)),
+        child: NeoSpinner(size: 20),
       );
     } else if (widget.child != null) {
       content = widget.child!;
@@ -427,80 +426,34 @@ class _NeoButtonState extends State<NeoButton> {
   }
 }
 
-/// Waiting, in the same language as everything else.
+/// The loading spinner, with the two things that made it hard to see fixed.
 ///
-/// Material's spinner is a thin, anti-aliased arc gliding on an easing curve
-/// — three of the things the rules at the top of this file forbid — so it read
-/// as a piece of a different app every time something loaded. This is a row of
-/// hard-bordered blocks that fill one at a time and *step* rather than glide.
+/// A bare `CircularProgressIndicator()` takes its colour from the theme, and
+/// this theme's `primary` is [Neo.pink] — so it drew a thin pink arc on the
+/// cream canvas, which is next to invisible. It also keeps a 4px stroke no
+/// matter how large it is asked to be. Here the colour is [Neo.ink] and the
+/// stroke grows with [size], so it reads as solidly as every other line in
+/// the app.
 ///
-/// [size] is the side of one block; [count] how many. The default fits inside
-/// a [NeoButton] in place of its label.
-class NeoLoader extends StatefulWidget {
-  const NeoLoader({
-    super.key,
-    this.size = 10,
-    this.count = 3,
-    this.color = Neo.ink,
-    this.fill = Neo.white,
-  });
+/// Reach for this instead of `CircularProgressIndicator` directly: leaving
+/// the colour to the theme is the whole bug.
+class NeoSpinner extends StatelessWidget {
+  const NeoSpinner({super.key, this.size = 26, this.color = Neo.ink});
 
   final double size;
-  final int count;
-
-  /// Stroke colour, and the fill of the block that is currently "on".
   final Color color;
-
-  /// Fill of the blocks that are currently "off".
-  final Color fill;
-
-  @override
-  State<NeoLoader> createState() => _NeoLoaderState();
-}
-
-class _NeoLoaderState extends State<NeoLoader>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    // One full pass every ~900ms regardless of how many blocks there are.
-    duration: const Duration(milliseconds: 900),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
-    final gap = widget.size * .45;
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (_, _) {
-        // Floor to an int so the highlight jumps between blocks instead of
-        // sliding through the in-between values.
-        final active = (_c.value * widget.count).floor() % widget.count;
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < widget.count; i++) ...[
-              if (i > 0) SizedBox(width: gap),
-              Container(
-                width: widget.size,
-                height: widget.size,
-                decoration: BoxDecoration(
-                  color: i == active ? widget.color : widget.fill,
-                  border: Border.all(
-                    color: widget.color,
-                    width: Neo.strokeThin,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        );
-      },
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CircularProgressIndicator(
+        // About an eighth of the diameter, clamped so a small one still reads
+        // and a large one doesn't turn into a disc.
+        strokeWidth: (size / 8).clamp(3.0, 5.0),
+        color: color,
+      ),
     );
   }
 }

@@ -80,9 +80,7 @@ class _ServerStatusScreenState extends State<ServerStatusScreen> {
                     if (h == null && _loading)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 60),
-                        child: Center(
-                          child: NeoLoader(size: 16, fill: Neo.paper),
-                        ),
+                        child: Center(child: NeoSpinner(size: 34)),
                       )
                     else if (h != null) ...[
                       _Summary(health: h, accent: _accent, busy: _loading),
@@ -216,7 +214,7 @@ class _Summary extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Expanded(child: Text(health.label, style: txt.headlineSmall)),
-              if (busy) const NeoLoader(size: 9),
+              if (busy) const NeoSpinner(size: 20),
             ],
           ),
           const SizedBox(height: 12),

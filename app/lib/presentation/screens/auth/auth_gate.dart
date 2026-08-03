@@ -154,7 +154,7 @@ class _NeoSplash extends StatelessWidget {
               ),
             ),
             SizedBox(height: 20),
-            NeoLoader(size: 14, fill: Neo.paper),
+            NeoSpinner(),
           ],
         ),
       ),

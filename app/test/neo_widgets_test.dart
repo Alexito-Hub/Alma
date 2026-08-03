@@ -41,29 +41,31 @@ void main() {
         _host(NeoButton(label: 'X', busy: true, onPressed: () => taps++)),
       );
 
-      expect(find.byType(NeoLoader), findsOneWidget);
-      // Material's spinner is the thing NeoLoader replaced; if it comes back
-      // anywhere in this design system, it's a regression.
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(NeoSpinner), findsOneWidget);
       await tester.tap(find.byType(NeoButton));
       expect(taps, 0);
     });
   });
 
-  testWidgets('NeoLoader steps through its blocks and stops when disposed', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_host(const NeoLoader()));
-    expect(find.byType(NeoLoader), findsOneWidget);
+  testWidgets('NeoSpinner is inked and thick enough to see', (tester) async {
+    // The bug it exists for: a bare CircularProgressIndicator inherits the
+    // theme's primary — Neo.pink — and draws a thin pink arc on cream paper.
+    await tester.pumpWidget(_host(const NeoSpinner(size: 34)));
 
-    // It animates forever, so pumpAndSettle would time out — advance by hand.
-    await tester.pump(const Duration(milliseconds: 350));
-    await tester.pump(const Duration(milliseconds: 350));
+    final indicator = tester.widget<CircularProgressIndicator>(
+      find.byType(CircularProgressIndicator),
+    );
+    expect(indicator.color, Neo.ink);
+    expect(indicator.strokeWidth, greaterThanOrEqualTo(3.0));
+  });
 
-    // Replacing it must dispose the controller cleanly; a leaked ticker fails
-    // the test at teardown.
-    await tester.pumpWidget(_host(const SizedBox()));
-    expect(find.byType(NeoLoader), findsNothing);
+  testWidgets('a small NeoSpinner keeps a readable stroke', (tester) async {
+    await tester.pumpWidget(_host(const NeoSpinner(size: 14)));
+
+    final indicator = tester.widget<CircularProgressIndicator>(
+      find.byType(CircularProgressIndicator),
+    );
+    expect(indicator.strokeWidth, greaterThanOrEqualTo(3.0));
   });
 
   testWidgets('NeoErrorBanner shows its message', (tester) async {
