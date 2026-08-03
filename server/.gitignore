@@ -8,6 +8,7 @@ erl_crash.dump
 alma-*.tar
 /tmp/
 .env
+.env.bak*
 .elixir_ls/
 .iex.exs
 priv/static/media/
