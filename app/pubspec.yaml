@@ -61,6 +61,10 @@ dependencies:
   get_thumbnail_video: 0.7.3
   share_plus: 12.0.2
 
+  # Accelerometer, for the shake that opens the capsule in the birthday
+  # sequence. Nothing else in the app reads sensors.
+  sensors_plus: ^6.1.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
