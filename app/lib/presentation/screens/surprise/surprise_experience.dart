@@ -10,7 +10,6 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../../core/astronomy/constellation.dart';
 import '../../../core/astronomy/zodiac.dart';
-import '../../../core/config/birthday_surprise.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/local/surprise_prefs.dart';
 import '../../../data/remote/media_headers.dart';
@@ -26,6 +25,11 @@ enum _Stage {
   intro,
   searching,
   locking,
+
+  /// The moment it becomes hers: her date, her sign, and what you wanted to
+  /// say. Deliberately *after* the search — telling her up front would have
+  /// spent the recognition before she earned it.
+  reveal,
   diving,
   memories,
   folding,
@@ -87,12 +91,18 @@ class _SurpriseExperienceState extends State<SurpriseExperience>
   double _searching = 0;
   double _lock = 0;
   double _held = 0;
+  double _revealed = 0;
   double _fold = 0;
   double _float = 0;
   double _burst = 0;
   double _message = 0;
 
   Offset _lockFrom = Offset.zero;
+
+  /// Clock for the marked constellation's breathing. Runs from the first
+  /// frame so the mark is there before she starts looking, not switched on
+  /// once a timer decides to help her.
+  double _breath = 0;
 
   /// Accumulated shake energy, and the still moment before the burst.
   double _shake = 0;
@@ -165,10 +175,12 @@ class _SurpriseExperienceState extends State<SurpriseExperience>
     switch (_stage) {
       case _Stage.intro:
         _intro += dt;
+        _breath += dt;
         if (_intro >= _introSeconds) _stage = _Stage.searching;
 
       case _Stage.searching:
         _searching += dt;
+        _breath += dt;
         if (_velocity.distance > 1) {
           // Exponential decay, never linear: a linear stop reads as mechanical.
           _camera = scene.clampCamera(_camera + _velocity * dt);
@@ -196,9 +208,13 @@ class _SurpriseExperienceState extends State<SurpriseExperience>
         )!;
         if (_lock >= 1) {
           _held += dt;
-          // A breath to read what she found, then the dive begins on its own.
-          if (_held >= _holdSeconds) _stage = _Stage.diving;
+          // A breath with just the constellation, before any words land.
+          if (_held >= _holdSeconds) _stage = _Stage.reveal;
         }
+
+      case _Stage.reveal:
+        _revealed += dt;
+        if (_revealed >= _revealSeconds) _stage = _Stage.diving;
 
       case _Stage.diving:
         // Ease **in**: it starts slow and keeps accelerating through the
@@ -344,6 +360,7 @@ class _SurpriseExperienceState extends State<SurpriseExperience>
                       camera: _camera,
                       searching: _searching,
                       isSearching: _stage == _Stage.searching,
+                      breath: _breath,
                       lock: _lock,
                       dive: _dive,
                     ),
@@ -351,6 +368,7 @@ class _SurpriseExperienceState extends State<SurpriseExperience>
                     willChange: true,
                   ),
                 if (_stage == _Stage.intro) _Intro(progress: _intro),
+                if (_stage == _Stage.reveal) _Reveal(t: _revealed),
                 if (_stage.index >= _Stage.diving.index &&
                     _stage.index <= _Stage.folding.index)
                   _Corridor(
@@ -387,9 +405,10 @@ class _SurpriseExperienceState extends State<SurpriseExperience>
 // ── the feel, in one place ─────────────────────────────────────────────────
 const double _dragRatio = 0.6;
 const double _ambientDrift = 0.3;
-const double _introSeconds = 4.2;
+const double _introSeconds = 4.6;
 const double _lockSeconds = 0.75;
 const double _holdSeconds = 1.6;
+const double _revealSeconds = 8.5;
 const double _diveSeconds = 1.9;
 const double _foldSeconds = 1.3;
 const double _burstSeconds = 0.7;
@@ -406,8 +425,12 @@ const double _hintLines = 75;
 
 // ═══ phase one ═════════════════════════════════════════════════════════════
 
-/// The opening: her date, the shape to look for, and its name. Without it the
-/// sky is a riddle with no clue.
+/// The opening. One line, and then it gets out of the way.
+///
+/// It used to show her the constellation up front so she would know what to
+/// look for — which worked, and spent the recognition before she had earned
+/// it. She finds it because it is *marked*: hers is the only thing in that
+/// sky that breathes. Nothing has to be explained.
 class _Intro extends StatelessWidget {
   const _Intro({required this.progress});
 
@@ -415,55 +438,128 @@ class _Intro extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fadeIn = (progress / 1.1).clamp(0.0, 1.0);
-    final fadeOut = ((_introSeconds - progress) / 1.0).clamp(0.0, 1.0);
+    final fadeIn = (progress / 1.4).clamp(0.0, 1.0);
+    final fadeOut = ((_introSeconds - progress) / 1.2).clamp(0.0, 1.0);
     final opacity = Curves.easeInOut.transform(math.min(fadeIn, fadeOut));
 
     return IgnorePointer(
       child: Opacity(
         opacity: opacity,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 48),
+            child: Text(
+              openingLine,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.72),
+                fontSize: 16,
+                height: 1.6,
+                letterSpacing: 2,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The moment it turns out to be hers.
+///
+/// Arrives only after she has found it, with the constellation still lit
+/// behind: her date, the sign that sky really gives her, and your words. The
+/// figure is drawn small alongside, from the same catalogue geometry, so what
+/// she is told matches what she is looking at.
+class _Reveal extends StatelessWidget {
+  const _Reveal({required this.t});
+
+  final double t;
+
+  @override
+  Widget build(BuildContext context) {
+    // Staggered: the date, then the sign, then what you wanted to say. All
+    // three at once would read as a certificate.
+    double at(double start, double span) =>
+        Curves.easeOut.transform(((t - start) / span).clamp(0.0, 1.0));
+    final out = ((_revealSeconds - t) / 1.1).clamp(0.0, 1.0);
+
+    final sign = Zodiac.forDate(birthDate).name;
+    final day = birthDate.day;
+    const months = [
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
+    ];
+
+    return IgnorePointer(
+      child: Opacity(
+        opacity: out,
         child: ColoredBox(
-          color: Colors.black.withValues(alpha: 0.55),
+          color: Colors.black.withValues(alpha: 0.55 * at(0, 1.2)),
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '14 de agosto',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.75),
-                    fontSize: 15,
-                    letterSpacing: 4,
-                  ),
-                ),
-                const SizedBox(height: 34),
-                SizedBox(
-                  width: 210,
-                  height: 150,
-                  child: CustomPaint(
-                    painter: _FigurePainter(
-                      reveal: Curves.easeOut.transform(
-                        (progress / 2.6).clamp(0.0, 1.0),
-                      ),
+                Opacity(
+                  opacity: at(0.5, 1.2),
+                  child: Text(
+                    '$day de ${months[birthDate.month - 1]} '
+                    'de ${birthDate.year}',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontSize: 15,
+                      letterSpacing: 4,
                     ),
                   ),
                 ),
-                const SizedBox(height: 34),
-                Text(
-                  Zodiac.forDate(BirthdaySurprise.momentFor()).name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    letterSpacing: 8,
+                const SizedBox(height: 26),
+                Opacity(
+                  opacity: at(1.4, 1.4),
+                  child: SizedBox(
+                    width: 190,
+                    height: 132,
+                    child: CustomPaint(
+                      painter: _FigurePainter(reveal: at(1.4, 2.0)),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  'Encuentra ${leo.asterismName}',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.55),
-                    fontSize: 13,
-                    letterSpacing: 2,
+                const SizedBox(height: 22),
+                Opacity(
+                  opacity: at(2.0, 1.2),
+                  child: Text(
+                    sign,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      letterSpacing: 10,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+                Opacity(
+                  opacity: at(3.2, 1.8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    child: Text(
+                      revealMessage,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.80),
+                        fontSize: 15,
+                        height: 1.75,
+                        letterSpacing: 1,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -538,6 +634,7 @@ class _SkyPainter extends CustomPainter {
     required this.camera,
     required this.searching,
     required this.isSearching,
+    required this.breath,
     required this.lock,
     required this.dive,
   });
@@ -547,6 +644,10 @@ class _SkyPainter extends CustomPainter {
   final Offset camera;
   final double searching;
   final bool isSearching;
+
+  /// Clock for the mark. See [_paintConstellation].
+  final double breath;
+
   final double lock;
   final double dive;
 
@@ -620,10 +721,22 @@ class _SkyPainter extends CustomPainter {
     final pos = scene.targetStarsOnScreen(camera);
     final near = scene.proximity(camera);
 
-    final pulse = isSearching && searching >= _hintPulse
-        ? (math.sin(searching * 2.2) * 0.5 + 0.5) *
-              ((searching - _hintPulse) / 4).clamp(0.0, 1.0)
-        : 0.0;
+    // **The mark.** Her stars are the only thing in this sky that breathes,
+    // and they breathe *together* — everything else is fixed. That is what
+    // makes the constellation findable without ever being explained: the eye
+    // catches motion in a still field long before the mind names a shape.
+    // Slow, so it reads as alive rather than as a blinking indicator.
+    final marked = (math.sin(breath * 1.15) * 0.5 + 0.5) * 0.34;
+
+    // The ladder of help deepens the same breath rather than adding a second
+    // effect on top; two rhythms at once would look like a malfunction.
+    final pulse =
+        marked +
+        (isSearching && searching >= _hintPulse
+            ? (math.sin(searching * 2.2) * 0.5 + 0.5) *
+                  ((searching - _hintPulse) / 4).clamp(0.0, 1.0) *
+                  0.5
+            : 0.0);
 
     final hinted = isSearching && searching >= _hintLines
         ? ((searching - _hintLines) / 6).clamp(0.0, 0.55)
@@ -679,6 +792,7 @@ class _SkyPainter extends CustomPainter {
   bool shouldRepaint(covariant _SkyPainter old) =>
       old.camera != camera ||
       old.searching != searching ||
+      old.breath != breath ||
       old.lock != lock ||
       old.dive != dive ||
       old.isSearching != isSearching;
