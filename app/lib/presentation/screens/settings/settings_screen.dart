@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/birthday_surprise.dart';
 import '../../../core/theme/neo.dart';
+import '../../../data/local/surprise_prefs.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/sync/sync_prefs.dart';
 import '../auth/profile_screen.dart';
+import '../surprise/surprise_experience.dart';
 import 'server_status_screen.dart';
 
 /// Top-level "Ajustes" tab: account and sync — the settings that used to be
@@ -105,7 +108,68 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 MaterialPageRoute(builder: (_) => const ServerStatusScreen()),
               ),
             ),
-            const SizedBox(height: 32),
+            // Rehearsal controls for the birthday sequence. The gate returns
+            // `preview` only for its author, so this section does not exist
+            // for anyone else — including her.
+            if (BirthdaySurprise.accessFor(
+                  email: me?.email,
+                  userId: me?.id,
+                  now: DateTime.now(),
+                  played: false,
+                ) ==
+                SurpriseAccess.preview) ...[
+              const _SectionTitle('Sorpresa'),
+              const SizedBox(height: 10),
+              NeoBox(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                shadowOffset: Neo.shadowBtn,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Solo tú ves esto.', style: txt.titleSmall),
+                    const SizedBox(height: 6),
+                    Text(
+                      BirthdaySurprise.armedForRecipient
+                          ? 'Armada: se abrirá sola en su teléfono a las 00:00 del 14.'
+                          : 'Sin armar: no puede abrirse en su teléfono todavía, '
+                                'pase lo que pase con la fecha.',
+                      style: txt.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    NeoButton(
+                      label: 'Empezar',
+                      icon: Icons.play_arrow_rounded,
+                      color: Neo.yellow,
+                      expand: true,
+                      onPressed: () =>
+                          SurpriseExperience.open(context, preview: true),
+                    ),
+                    const SizedBox(height: 8),
+                    NeoButton(
+                      label: 'Olvidar que ya se vio',
+                      icon: Icons.restart_alt_rounded,
+                      color: Neo.white,
+                      expand: true,
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      onPressed: () async {
+                        await SurprisePrefs.reset();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Marcada como no vista'),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+            ],
 
             NeoButton(
               label: 'Cerrar sesión',

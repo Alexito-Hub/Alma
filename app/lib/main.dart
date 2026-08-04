@@ -18,16 +18,9 @@ import 'presentation/screens/auth/auth_gate.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Neo-brutalist canvas is light: keep status/nav bar glyphs dark.
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      statusBarBrightness: Brightness.light,
-      systemNavigationBarColor: Color(0xFFFCEFDA),
-      systemNavigationBarIconBrightness: Brightness.dark,
-    ),
-  );
+  // Neo-brutalist canvas is light: keep status/nav bar glyphs dark. Shared
+  // with anything that goes fullscreen and has to restore it afterwards.
+  SystemChrome.setSystemUIOverlayStyle(AppTheme.systemOverlayStyle);
 
   await initializeDateFormatting('es');
   await IsarService.instance.open();

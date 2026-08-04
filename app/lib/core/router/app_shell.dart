@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/device/home_widgets.dart';
 import '../../data/device/notifications.dart';
+import '../../data/local/surprise_prefs.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/status_repository.dart';
 import '../../data/sync/hydrator.dart';
@@ -14,6 +15,8 @@ import '../../presentation/screens/dashboard/dashboard_screen.dart';
 import '../../presentation/screens/diary/diary_screen.dart';
 import '../../presentation/screens/quick_action/quick_action_sheet.dart';
 import '../../presentation/screens/settings/settings_screen.dart';
+import '../../presentation/screens/surprise/surprise_experience.dart';
+import '../config/birthday_surprise.dart';
 import '../theme/neo.dart';
 
 /// App shell with a neo-brutalist bottom navigation bar.
@@ -40,6 +43,10 @@ class _AppShellState extends ConsumerState<AppShell>
     SettingsScreen(),
   ];
 
+  /// Guards the birthday sequence against opening twice — a second push while
+  /// the first is still on screen would be the ugliest possible bug here.
+  bool _surpriseOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -47,6 +54,7 @@ class _AppShellState extends ConsumerState<AppShell>
     _sync();
     // Android 13+ asks once; declining just means no partner alerts.
     unawaited(Notifications.requestPermission());
+    unawaited(_maybeDetonateSurprise());
   }
 
   @override
@@ -59,7 +67,40 @@ class _AppShellState extends ConsumerState<AppShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Coming back to the app is a good moment to push what we made offline and
     // pull whatever the partner did meanwhile.
-    if (state == AppLifecycleState.resumed) _sync();
+    if (state == AppLifecycleState.resumed) {
+      _sync();
+      // Also the moment that catches midnight passing while the phone slept.
+      unawaited(_maybeDetonateSurprise());
+    }
+  }
+
+  /// Open the birthday sequence if — and only if — this session is the
+  /// recipient, the moment has arrived, it is armed, and she hasn't seen it.
+  ///
+  /// Every one of those conditions is decided by [BirthdaySurprise.accessFor],
+  /// which is pure and tested; this method only supplies the clock, the stored
+  /// flag and the navigation.
+  Future<void> _maybeDetonateSurprise() async {
+    if (_surpriseOpen) return;
+
+    final me = ref.read(currentUserProvider);
+    if (me == null) return; // No session resolved yet — decide nothing.
+
+    final access = BirthdaySurprise.accessFor(
+      email: me.email,
+      userId: me.id,
+      now: DateTime.now(),
+      played: await SurprisePrefs.played(),
+    );
+    if (access != SurpriseAccess.detonate) return;
+    if (!mounted || _surpriseOpen) return;
+
+    _surpriseOpen = true;
+    try {
+      await SurpriseExperience.open(context);
+    } finally {
+      _surpriseOpen = false;
+    }
   }
 
   /// Push local pending content and pull the partner's latest.

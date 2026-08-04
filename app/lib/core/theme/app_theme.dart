@@ -13,6 +13,28 @@ import 'neo.dart';
 class AppTheme {
   AppTheme._();
 
+  /// The app's normal system-bar dressing: transparent status bar with dark
+  /// glyphs over the cream canvas.
+  ///
+  /// Lives here rather than inline in `main()` because anything that goes
+  /// fullscreen has to put it back exactly as it was on the way out.
+  static const SystemUiOverlayStyle systemOverlayStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemNavigationBarColor: Neo.paper,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  );
+
+  /// Restore the normal chrome after a fullscreen sequence.
+  static void restoreSystemChrome() {
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
+    SystemChrome.setSystemUIOverlayStyle(systemOverlayStyle);
+  }
+
   static ThemeData neo() {
     const scheme = ColorScheme(
       brightness: Brightness.light,
